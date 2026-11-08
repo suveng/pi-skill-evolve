@@ -11,7 +11,7 @@ pi install npm:pi-skill-evolve@0.1.0     # 钉版本，升级是你主动的决�
 pi install -l npm:pi-skill-evolve@0.1.0  # 只装到当前项目
 
 # 也可以用 git 源，但它每次启动 / reload 都会跟远端分支走，不适合生产
-pi install git:gitee.com/suveng/pi-skill-evolve
+pi install git:github.com/suveng/pi-skill-evolve
 ```
 
 装完 `/reload`。默认行为：**Web 面板随 pi 启动**（`127.0.0.1:7788`），**采集与自动复盘默认关闭**——面板起来不等于开始花 token。
