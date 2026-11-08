@@ -21,7 +21,14 @@ const DESC_DIFF = [
   "-description: 旧描述",
   "+description: 检索日志时用 rg，禁止 find 全盘扫",
 ].join("\n");
-const PASS = JSON.stringify({ verdict: "pass", blocking: [], notes: "没问题" });
+const EVIDENCE_ROW = { file: ".pi/skills/demo/SKILL.md", line: 4, quote: "description: 检索日志时用 rg，禁止 find 全盘扫" };
+const PASS = JSON.stringify({
+  verdict: "pass",
+  summary: "新描述只补了触发场景词，没删原有禁令",
+  blocking: [],
+  passed: [{ point: "原有禁止项仍在正文里", evidence: EVIDENCE_ROW }],
+  notes: "没问题",
+});
 const RUN_JSON = JSON.stringify({ runId: "run-1", status: "dispatched", cwd: "/repo", stages: [{ name: "analyze", model: "deepseek/flash", usage: {}, ms: 10 }] });
 /** 只放一条与仓库同形的 rg-over-find：用例不依赖 .pi/evolution/rules 文件是否在场 */
 const RULES = compileRules({
@@ -74,11 +81,18 @@ test("正常路径：pass → reviewed，写 03-review.json/.md 并回写 run.js
   assert.equal(review.proposerModel, "deepseek/flash");
   assert.equal(review.sameModel, true);
   assert.equal(review.action, "auto");
+  // 结论要能解释「为什么」：summary 与 passed 都得落盘（面板详情页读的就是这两个字段）
+  assert.equal(review.summary, "新描述只补了触发场景词，没删原有禁令");
+  assert.equal((review.passed as unknown[]).length, 1);
   const md = fs.text(`${RUN_DIR}/03-review.md`) ?? "";
   assert.ok(md.startsWith("> 同模型自评"), "同模型自评警告必须在首行");
+  assert.match(md, /\*\*新描述只补了触发场景词，没删原有禁令\*\*/);
+  assert.match(md, /## passed/);
   const run = fs.json(`${RUN_DIR}/run.json`) as Record<string, unknown>;
   assert.equal(run.status, "reviewed");
   assert.deepEqual((run.review as Record<string, unknown>).sameModel, true);
+  assert.equal((run.review as Record<string, unknown>).summary, "新描述只补了触发场景词，没删原有禁令");
+  assert.equal((run.review as Record<string, unknown>).passed, 1);
   assert.equal(prompts.length, 0);
 });
 

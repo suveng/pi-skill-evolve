@@ -61,6 +61,8 @@ function fullRun(): { evolutionDir: string; runDir: string } {
     action: "forbidden",
     reviewerModel: "deepseek/deepseek-flash",
     reviewedAt: NOW + 5_000,
+    // 新版契约：结论要带一句「为什么」，通过理由也落盘
+    summary: "描述承诺了正文没有的能力",
     notes: "证据不足",
     blocking: [
       {
@@ -69,6 +71,7 @@ function fullRun(): { evolutionDir: string; runDir: string } {
       },
       { issue: "缺少证据", evidence: {} },
     ],
+    passed: [{ point: "没有删除原有禁令", evidence: { file: ".pi/skills/demo/SKILL.md", line: 9, quote: "一律用 rg" } }],
   });
   writeJson(path.join(runDir, "04-decision.json"), { status: "rejected", approver: "auto", at: NOW + 6_000 });
   writeJson(path.join(runDir, "06-verify.json"), {
@@ -133,8 +136,13 @@ test("readRunDetail：六块证据（概要 / diff / 候选全文 / 评审 / 五
     verdict: "revise",
     action: "forbidden",
     reviewerModel: "deepseek/deepseek-flash",
+    summary: "描述承诺了正文没有的能力",
+    legacy: false,
   });
   assert.equal(detail.blocking.length, 2);
+  assert.equal(detail.passed.length, 1, "通过理由要能读出来（revise 也可能有没问题的点）");
+  assert.equal(detail.passed[0]!.point, "没有删除原有禁令");
+  assert.equal(detail.passed[0]!.line, 9);
   assert.equal(detail.blocking[0]!.line, 3, "证据行号要能直接跳过去");
   assert.match(detail.blocking[1]!.issue, /缺少证据/);
   assert.equal(detail.blocking[1]!.file, "", "缺 evidence 的文件位置不能编一个");
@@ -152,6 +160,25 @@ test("readRunDetail：六块证据（概要 / diff / 候选全文 / 评审 / 五
   );
   assert.equal(detail.findings[1]!.reason, "已加载");
   assert.equal(detail.notes, "只差两处");
+});
+
+test("readRunDetail：旧 run 的 03-review.json 没有 summary / passed 时不抛，读成 null / 空数组", () => {
+  // 真实样本：.pi/evolution/runs/354df7db-1794133942（v0.1.9 之前产出的评审记录）
+  const { evolutionDir, runDir } = workspace();
+  writeJson(path.join(runDir, "run.json"), { runId: RUN_ID, status: "rejected", trigger: "auto", dispatchedAt: NOW });
+  writeJson(path.join(runDir, "03-review.json"), {
+    status: "rejected",
+    verdict: "revise",
+    action: "forbidden",
+    reviewerModel: "deepseek/deepseek-flash",
+    notes: "旧版只有 notes",
+    blocking: [{ issue: "旧版意见", evidence: { file: "a.md", line: 1, quote: "x" } }],
+  });
+  const detail = readRunDetail(evolutionDir, RUN_ID)!;
+  assert.equal(detail.review?.summary, null, "缺字段就是 null，不编也不抛");
+  assert.equal(detail.review?.legacy, true, "两个键都没有才算旧记录，详情页要据此说旧版");
+  assert.deepEqual(detail.passed, []);
+  assert.equal(detail.blocking.length, 1);
 });
 
 test("readRunDetail：runId 不合法（../、绝对路径、子路径）一律 null，不读盘越界", () => {

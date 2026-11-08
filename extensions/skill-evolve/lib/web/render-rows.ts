@@ -123,13 +123,22 @@ export function pendingRows(items: readonly PendingItem[], ctx: RowContext): Lis
   }));
 }
 
-/** 已处理：终态各一色；被拒绝是暗红（是结论，不是故障），失败才是红 */
+/** 已处理：终态各一色；被拒绝是暗红（是结论，不是故障），失败才标题红色
+ * 键必须与 run.json / 队列里的 status 一字不差：抄错一个字符（比如 rolledback）徽章就永远匹配不上，
+ * 页面上会回落到淡灰 + 原始英文，而不是中文文案。 */
 export function doneRows(items: readonly DoneItem[]): ListRow[] {
   const tone: Record<string, { text: string; tone: BadgeTone }> = {
     applied: { text: "已采纳", tone: "green" },
     rejected: { text: "已拒绝", tone: "darkred" },
     failed: { text: "失败", tone: "red" },
-    rolledback: { text: "已回滚", tone: "faint" },
+    "rolled-back": { text: "已回滚", tone: "faint" },
+    superseded: { text: "已被取代", tone: "faint" },
+    // 评审器自己出问题：是故障，不是结论，所以给红（同 failed），不给暗红
+    review_failed: { text: "评审失败", tone: "red" },
+    // 提案者没下文 / 放弃：没发生坏事，用淡灰
+    abandoned: { text: "已放弃", tone: "faint" },
+    // 越权写入是纪律事故，必须红
+    unauthorized_write: { text: "越权写入", tone: "red" },
   };
   return items.map((item) => ({
     runId: item.runId,

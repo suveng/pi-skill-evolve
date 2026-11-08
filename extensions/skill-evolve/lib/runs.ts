@@ -86,6 +86,10 @@ export interface RunReview {
   reviewerModel: string;
   proposerModel: string;
   sameModel: boolean;
+  /** 一句话结论（旧 run 没有这一项 = undefined/null） */
+  summary?: string | null;
+  /** 通过理由条数：列表页不需要全文，详情页读 03-review.json */
+  passed?: number;
 }
 
 export interface RunSummary {

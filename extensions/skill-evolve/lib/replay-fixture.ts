@@ -47,11 +47,14 @@ export const REPLAY_DIFF = [
   "",
 ].join("\n");
 
-/** 假评审结论：形状必须过 postProcessReview 的字段校验（证据三件套齐全） */
+/** 假评审结论：形状必须过 postProcessReview 的字段校验（summary 必填 + 证据三件套齐全 + pass 必须有 passed） */
 export const FAKE_REVIEW_TEXT = JSON.stringify({
   verdict: "pass",
+  summary: "新增条款只补了复演前的读取顺序，没有删改原有约束",
   blocking: [],
-  evidence: [{ file: ".pi/skills/replay-demo/SKILL.md", line: 9, quote: "复演时必须先看 00-session/index.json" }],
+  passed: [
+    { point: "没有删原有禁令", evidence: { file: ".pi/skills/replay-demo/SKILL.md", line: 9, quote: "复演时必须先看 00-session/index.json" } },
+  ],
   notes: ["复演用假评审：只验证流水线，不代表真实评审质量"],
 });
 

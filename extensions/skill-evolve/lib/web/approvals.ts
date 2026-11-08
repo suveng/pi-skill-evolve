@@ -10,8 +10,15 @@
 import * as path from "node:path";
 import type { QueueItem } from "../queue.ts";
 import { readProposalSummary } from "../proposal.ts";
+import type { RunStatus } from "../runs.ts";
 import { asNumber, asText, readJson } from "./json-read.ts";
 import { readRunSession, type SessionRef } from "./run-session.ts";
+
+/**
+ * 待审批页对应的 run 状态（导出给覆盖性测试）：条目靠队列条件选（pending + approval 级），
+ * 能进队列就说明评审已过，所以这里只能是 reviewed。
+ */
+export const APPROVALS_RUN_STATUSES: readonly RunStatus[] = ["reviewed"];
 
 export interface ApprovalItem {
   runId: string;

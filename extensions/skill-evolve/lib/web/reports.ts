@@ -5,13 +5,19 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { readVerify } from "../apply.ts";
-import type { RunSummary } from "../runs.ts";
+import type { RunStatus, RunSummary } from "../runs.ts";
 import { readRunError } from "../stale.ts";
 import { asNumber, asRecord, asText, readJson, reasonLabel } from "./json-read.ts";
 import { sessionFromRecord, type SessionRef } from "./run-session.ts";
 
 /** 单条报告里最多列几个技能：全量列会把 details 撑成第二份 findings */
 export const MAX_FINDING_ROWS = 5;
+
+/**
+ * 复盘报告页唯一由 run 状态决定的分支：status=stale 且没有 findings 的失败 run 也要占一行。
+ * （其余 run 靠「能读到 01-findings.json」入场，与状态无关）导出给覆盖性测试用。
+ */
+export const REPORTS_RUN_STATUSES: readonly RunStatus[] = ["stale"];
 
 export interface FindingRow {
   skill: string;
@@ -126,13 +132,15 @@ export function buildReports(evolutionDir: string, runs: readonly RunSummary[]):
       // 失败也要有一行档案：每条 run 都能在报告里找到，不能因为没产出就从历史里消失
       const summary = summaries.get(runId);
       const raw = readJson<Record<string, unknown>>(path.join(runDir, "run.json"));
-      if ((summary?.status ?? asText(raw?.status)) !== "stale") continue;
+      const status = summary?.status ?? asText(raw?.status);
+      // 判据用清单本体而不是写死 "stale"：清单改了代码就跟着改（同类写法见 ./applied.ts）
+      if (!REPORTS_RUN_STATUSES.some((known) => known === status)) continue;
       const error = readRunError(runDir);
       const tail = error?.childLogTail ?? [];
       const lastLine = tail.length > 0 ? tail[tail.length - 1]!.trim() : "";
       reports.push({
         runId,
-        status: "stale",
+        status,
         trigger: meta.trigger,
         session: meta.session,
         startedAt: summary?.dispatchedAt ?? asNumber(raw?.dispatchedAt),

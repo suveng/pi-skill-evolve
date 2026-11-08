@@ -144,7 +144,7 @@ test("徽章：七种状态各一色（待入队灰 / 待审批蓝 / 复盘中�
   assert.match(pendingCase("stale", "跑了 10 小时"), /<span class="badge red" title="跑了 10 小时">卡死<\/span>/);
   assert.match(doneCase("applied"), /<span class="badge green" title="">已采纳<\/span>/);
   assert.match(doneCase("rejected"), /<span class="badge darkred" title="">已拒绝<\/span>/);
-  assert.match(doneCase("rolledback"), /<span class="badge faint" title="">已回滚<\/span>/);
+  assert.match(doneCase("rolled-back"), /<span class="badge faint" title="">已回滚<\/span>/);
   assert.match(doneCase("failed"), /<span class="badge red" title="">失败<\/span>/);
 });
 

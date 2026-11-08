@@ -4,7 +4,7 @@
  * 单独一个文件是因为评审督导已经接近 300 行闸门；这里全是纯函数，单测可直接调。
  */
 import type { ActionLevel } from "./classify-action.ts";
-import type { ReviewBlocking, ReviewVerdict } from "./review-post.ts";
+import type { ReviewBlocking, ReviewPassing, ReviewVerdict } from "./review-post.ts";
 
 export type SupervisorStatus = "reviewed" | "rejected" | "review_failed" | "skipped";
 
@@ -13,6 +13,10 @@ export interface ReviewRecord {
   reason?: string;
   verdict?: ReviewVerdict;
   blocking: ReviewBlocking[];
+  /** 通过理由（verdict=pass 时至少 1 条）；旧 run 没有这个字段 —— 读的时候当空数组，不抛 */
+  passed?: ReviewPassing[];
+  /** 一句话结论（≤80 字）；旧 run 没有这个字段 = undefined */
+  summary?: string;
   notes?: string;
   action?: ActionLevel;
   reviewerModel: string;
@@ -45,6 +49,8 @@ export function renderReviewMarkdown(record: ReviewRecord, skill: string): strin
   // 首行就要立警告：同模型自评的独立性天然有限，人一眼得看见
   if (record.sameModel) lines.push("> 同模型自评，独立性有限（proposer 与 reviewer 是同一个模型，请人工复核）", "");
   lines.push(`# 评审结论：${record.verdict ?? record.status}`, "");
+  // 结论摘要放在元信息之前：人看 md 的第一句就该是「为什么」
+  if (record.summary) lines.push(`**${record.summary}**`, "");
   lines.push(`- 技能：${skill}`);
   lines.push(`- status：${record.status}${record.detail ? `（${record.detail}）` : ""}`);
   lines.push(`- 建议动作：${record.action ?? "无"}（本版一律不写 .pi/skills）`);
@@ -55,6 +61,13 @@ export function renderReviewMarkdown(record: ReviewRecord, skill: string): strin
     lines.push("", "## blocking", "");
     for (const item of record.blocking) {
       lines.push(`- ${item.issue}`, `  - 证据：${item.evidence.file}:${item.evidence.line} 「${item.evidence.quote}」`);
+    }
+  }
+  const passed = record.passed ?? [];
+  if (passed.length > 0) {
+    lines.push("", "## passed", "");
+    for (const item of passed) {
+      lines.push(`- ${item.point}`, `  - 证据：${item.evidence.file}:${item.evidence.line} 「${item.evidence.quote}」`);
     }
   }
   if (record.notes) lines.push("", "## notes", "", record.notes);

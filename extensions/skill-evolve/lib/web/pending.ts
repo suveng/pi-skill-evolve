@@ -8,7 +8,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { QueueItem } from "../queue.ts";
-import type { RunSummary } from "../runs.ts";
+import type { RunStatus, RunSummary } from "../runs.ts";
 import { CHILD_LOG } from "../spawn-plan.ts";
 import { classifyStale, readLogTail, readRunError } from "../stale.ts";
 import type { WebStateDeps } from "./data.ts";
@@ -29,6 +29,12 @@ function defaultAlive(pid: number): boolean {
 
 /** 待处理五来源：正在跑 / 已判卡死 / 队列待批 / 已出结论等评审 / 评审通过等入队 */
 export type PendingKind = "running" | "approval" | "stale" | "to-review" | "reviewed";
+
+/**
+ * 待处理页收的 run 状态（导出给 test/web-view-coverage.test.ts 做状态覆盖性检查）。
+ * running 的判据是 dispatched + pid 还活着，所以 dispatched 算这里收；reviewed 是「等入队」。
+ */
+export const PENDING_RUN_STATUSES: readonly RunStatus[] = ["dispatched", "analyzed", "proposed", "reviewed", "stale"];
 
 export interface PendingItem {
   runId: string;

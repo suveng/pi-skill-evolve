@@ -1,0 +1,6 @@
+{
+  "name": "good-description",
+  "skill": "log-helper",
+  "expected": "pass",
+  "why": "只给 description 补触发场景词，正文与既有禁令一字未动，评审应给 pass 并写出通过理由（passed ≥1）"
+}

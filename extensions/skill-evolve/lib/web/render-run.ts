@@ -8,7 +8,7 @@
  */
 import type { WebState } from "./data.ts";
 import { DIFF_PREVIEW_LINES, renderDiffLines, parseDiffLines } from "./diff-lines.ts";
-import type { RunBlocking, RunDetail } from "./run-detail.ts";
+import type { RunBlocking, RunDetail, RunPassing } from "./run-detail.ts";
 import { sessionHref } from "./run-session.ts";
 import { shellPage } from "./shell.ts";
 import { escapeHtml, formatStamp } from "./text.ts";
@@ -89,18 +89,40 @@ function candidateSection(detail: RunDetail): string {
 </section>`;
 }
 
-function blockingRows(blocking: readonly RunBlocking[]): string {
-  if (blocking.length === 0) return `<p class="hint">blocking：0 条。</p>`;
-  const rows = blocking.map((item) => {
-    const where = item.file.length > 0 ? `${item.file}${item.line === null ? "" : `:${item.line}`}` : "（未写位置）";
-    return `<tr><td>${escapeHtml(item.issue)}</td><td><code>${escapeHtml(where)}</code></td><td>${escapeHtml(item.quote)}</td></tr>`;
+/** 旧 run 的兼容文案：03-review.json 没有 summary / passed 时明说「不是页面坏了」 */
+const LEGACY_REVIEW_NOTE = "该 run 由旧版评审产出，没有结论摘要（重跑一次就有）";
+/** 新版评审也确实可能两块全空（比如 skipped）：那时不能说「旧版」，要说「没给理由」 */
+const NO_REASON_NOTE = "03-review.json 里没有 blocking / passed：这一轮评审只写了结论，没写理由。";
+
+/** 理由表的一行：blocking 用 issue、passed 用 point，但三列形状一样（说明 / 证据位置 / 原文引用） */
+interface ReasonRow {
+  text: string;
+  file: string;
+  line: number | null;
+  quote: string;
+}
+
+function reasonTable(head: string, rows: readonly ReasonRow[]): string {
+  if (rows.length === 0) return "";
+  const body = rows.map((row) => {
+    const where = row.file.length > 0 ? `${row.file}${row.line === null ? "" : `:${row.line}`}` : "（未写位置）";
+    return `<tr><td>${escapeHtml(row.text)}</td><td><code>${escapeHtml(where)}</code></td><td>${escapeHtml(row.quote)}</td></tr>`;
   });
-  return `<table class="tbl">
-<thead><tr><th>问题</th><th>证据位置</th><th>原文引用</th></tr></thead>
+  return `<h3>${head}</h3>
+<table class="tbl">
+<thead><tr><th>${head === "阻断意见" ? "问题" : "通过点"}</th><th>证据位置</th><th>原文引用</th></tr></thead>
 <tbody>
-${rows.join("\n")}
+${body.join("\n")}
 </tbody>
 </table>`;
+}
+
+function blockingRows(blocking: readonly RunBlocking[]): ReasonRow[] {
+  return blocking.map((item) => ({ text: item.issue, file: item.file, line: item.line, quote: item.quote }));
+}
+
+function passedRows(passed: readonly RunPassing[]): ReasonRow[] {
+  return passed.map((item) => ({ text: item.point, file: item.file, line: item.line, quote: item.quote }));
 }
 
 function reviewSection(detail: RunDetail): string {
@@ -111,6 +133,17 @@ function reviewSection(detail: RunDetail): string {
 </section>`;
   }
   const review = detail.review;
+  // 结论摘要：用户问的第一句永远是「为什么」，所以它排在 verdict 那一行之后、理由表之前，且字号大一档
+  // legacy 看的是 03-review.json 里有没有新契约的键，不是「summary 空不空」：
+  // 新版评审失败时同样没有 summary，那时要说「没给理由」，不能说成旧版
+  const legacy = review.legacy;
+  const summary = legacy
+    ? `<p class="hint">${LEGACY_REVIEW_NOTE}</p>`
+    : `<p class="verdict-summary">${escapeHtml(review.summary ?? "")}</p>`;
+  const blocked = reasonTable("阻断意见", blockingRows(detail.blocking));
+  const passed = reasonTable("通过理由", passedRows(detail.passed));
+  // 旧 run 已经有上面那句兼容文案了，不再叠一句「没给理由」
+  const emptyNote = !legacy && blocked === "" && passed === "" ? `<p class="hint">${NO_REASON_NOTE}</p>` : "";
   return `<section>
 <h2>评审结论</h2>
 <p class="kv-line">
@@ -119,7 +152,10 @@ action <b>${escapeHtml(review.action)}</b> ·
 状态 ${escapeHtml(review.status)} ·
 评审模型 <code>${escapeHtml(review.reviewerModel)}</code>
 </p>
-${blockingRows(detail.blocking)}
+${summary}
+${emptyNote}
+${blocked}
+${passed}
 </section>`;
 }
 

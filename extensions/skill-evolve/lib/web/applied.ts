@@ -10,11 +10,15 @@ import * as path from "node:path";
 import { readVerify } from "../apply.ts";
 import { readProposalSummary } from "../proposal.ts";
 import type { QueueItem } from "../queue.ts";
+import type { RunStatus } from "../runs.ts";
 import { asNumber, asText, readJson } from "./json-read.ts";
 import { readRunSession, type SessionRef } from "./run-session.ts";
 
 /** 已采纳列表上限：与 DONE_LIMIT 同量级 —— 网页看近期，不是审计日志 */
 export const APPLIED_LIMIT = 50;
+
+/** 已采纳页收的 run 状态（导出给覆盖性测试）：只有队列 item.status === "applied" 的条目 */
+export const APPLIED_RUN_STATUSES: readonly RunStatus[] = ["applied"];
 
 /** 一个已采纳条目：技能 · 提案类型 · +N/-M · 采纳时间 · 五闸是否全 ok */
 export interface AppliedItem {
@@ -43,7 +47,8 @@ export interface AppliedItem {
 export function buildApplied(items: readonly QueueItem[], evolutionDir: string): AppliedItem[] {
   const rows: AppliedItem[] = [];
   for (const item of items) {
-    if (item.status !== "applied") continue;
+    // 判据用清单本体而不是写死 "applied"：清单改了代码就跟着改（覆盖性测试读的也是这份）
+    if (!APPLIED_RUN_STATUSES.some((status) => status === item.status)) continue;
     const runDir = path.join(evolutionDir, "runs", item.runId);
     const proposal = readProposalSummary(runDir);
     const verify = readVerify(runDir);

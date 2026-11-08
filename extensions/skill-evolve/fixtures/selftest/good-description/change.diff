@@ -1,0 +1,13 @@
+--- a/.pi/skills/log-helper/SKILL.md
++++ b/.pi/skills/log-helper/SKILL.md
+@@ -1,9 +1,9 @@
+ ---
+ name: log-helper
+-description: 查日志时使用
++description: 查服务端日志、客户端日志、构建日志时使用：先定位时间窗再 rg 关键字
+ ---
+ 
+ # 日志排查
+ 
+ - 凡是查日志一律用 `rg`，禁止 `grep -r` 全盘扫。
+ - 只读日志，不许改服务端配置。

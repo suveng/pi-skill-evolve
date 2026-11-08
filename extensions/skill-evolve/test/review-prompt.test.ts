@@ -103,3 +103,12 @@ test("verdict 语义写进 prompt：能改的小毛病不许判 reject（真实�
   assert.match(prompt, /revise：方向可以接受/);
   assert.match(prompt, /reject：删掉了原有的明确禁止项/);
 });
+
+test("输出契约要求写「为什么」：summary 必填 + pass 必须给 passed", () => {
+  const prompt = buildReviewPrompt({ skillName: "demo", skillText: "正文", diffApplied: true, diff: "+++ b/x\n", hardRules: [] });
+  assert.match(prompt, /"summary":"一句话结论（≤80 字，必须写清因为什么）"/);
+  assert.match(prompt, /"passed":\[\{"point"/);
+  assert.match(prompt, /summary 必填/);
+  assert.match(prompt, /verdict=pass 时 blocking=\[\] 且 passed 至少 1 条/);
+  assert.match(prompt, /verdict=reject\/revise 时 blocking 至少 1 条/);
+});

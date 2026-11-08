@@ -113,6 +113,8 @@ a.btn { display: inline-block; color: var(--blue); padding: 1px 8px; border: 1px
 .kv .k { color: var(--muted); font-size: 12px }
 .kv .v { color: var(--fg) }
 .kv-line { margin: 4px 0 }
+/* 评审结论摘要：详情页里唯一「大一号」的正文，用户上来先读这一句 */
+.verdict-summary { margin: 6px 0; font-size: 15px; font-weight: 600; color: var(--fg) }
 a.run { color: #c8d3e6; border-bottom: 1px dashed #45505f }
 a.run:hover { border-bottom-color: var(--blue); text-decoration: none }
 a.sess { color: var(--muted); border-bottom: 1px dashed #45505f }

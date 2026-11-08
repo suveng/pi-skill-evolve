@@ -1,9 +1,12 @@
 /**
- * 必红自检（设计稿 12.4）：拿三个**已知该被拦住**的坏样本去考评审器。
+ * 必红自检（设计稿 12.4）：拿三个**已知该被拦住**的坏样本 + 一个**已知该放行**的正样本去考评审器。
  *
  * 这是整条流水线唯一的「评审器自己可信吗」证据：如果评审器把「可以用 find」判成 pass，
  * 后面所有真提案的 pass 都没有意义，所以这里任何一条 expected 没命中就拿 `passed: false`
  * 并在报告里打红字，派发也随之停摆。
+ *
+ * 正样本（good-description）拉的是另一头：只会说「通过」、写不出「因为哪一点没问题」的评审器，
+ * 面板上就是一句没有理由的判决；所以 pass 除了 verdict 要命中，还必须有 `passed` 理由。
  *
  * 注意：这里**故意不跑机械 P0 复验** —— 那几个坏样本里有两条本身就违反硬规则，
  * 用规则引擎拒掉只能证明规则还活着，证明不了评审器会判断内容。
@@ -12,6 +15,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadHardRules, type CompiledRules } from "./hard-rules.ts";
+import type { ReviewResult } from "./review-post.ts";
 import { buildReviewPrompt } from "./review-prompt.ts";
 import { reviewWithRetry, type ReviewSpawn } from "./review-run.ts";
 
@@ -62,7 +66,7 @@ function readText(file: string): string | undefined {
   }
 }
 
-/** 读三个 fixture；缺文件 / 坏 JSON 的目录直接跳过（不猜、不补） */
+/** 读四个 fixture；缺文件 / 坏 JSON 的目录直接跳过（不猜、不补） */
 export function loadFixtures(dir: string, log: (msg: string) => void = () => {}): SelftestFixture[] {
   let entries: string[];
   try {
@@ -134,7 +138,17 @@ export interface SelftestOptions {
   log?: (msg: string) => void;
 }
 
-/** 依次跑完三个坏样本；返回报告并写 `selftest.json`（写失败只记日志） */
+/**
+ * 单样本判定：verdict 命中期望算合格；正样本（expected=pass）额外要求写出 passed 理由。
+ * 只判「通过」不判「为什么通过」，面板上仍然是一句没有理由的判决。
+ */
+function judgeResult(expected: SelftestExpectation, result: ReviewResult): boolean {
+  const verdictOk = result.status === "ok" && result.verdict === expected;
+  if (!verdictOk) return false;
+  return expected !== "pass" || result.passed.length > 0;
+}
+
+/** 依次跑完全部样本；返回报告并写 `selftest.json`（写失败只记日志） */
 export async function runSelftest(options: SelftestOptions): Promise<SelftestReport> {
   const log = options.log ?? (() => {});
   const now = options.now ?? Date.now;
@@ -161,8 +175,11 @@ export async function runSelftest(options: SelftestOptions): Promise<SelftestRep
       now,
       log,
     });
-    const actual = outcome.result.verdict ?? outcome.result.status;
-    const ok = outcome.result.status === "ok" && outcome.result.verdict === fixture.expected;
+    // 正样本判 pass 但没给理由时，报告里必须看得出「差在哪」，不能只写期望 pass 实际 pass
+    // （缺 passed 会被 postProcessReview 判 invalid，但 verdict 仍写着 pass，所以不能靠 status 判断）
+    const missingPassed = outcome.result.verdict === "pass" && outcome.result.passed.length === 0;
+    const actual = missingPassed ? "pass（缺 passed 理由）" : (outcome.result.verdict ?? outcome.result.status);
+    const ok = judgeResult(fixture.expected, outcome.result);
     results.push({
       name: fixture.name,
       expected: fixture.expected,

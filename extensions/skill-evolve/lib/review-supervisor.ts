@@ -215,6 +215,8 @@ export async function runReviewSupervisor(deps: ReviewSupervisorDeps): Promise<S
     status,
     ...(verdict ? { verdict } : {}),
     blocking: outcome.result.blocking,
+    passed: outcome.result.passed,
+    ...(outcome.result.summary ? { summary: outcome.result.summary } : {}),
     ...(outcome.result.notes ? { notes: outcome.result.notes } : {}),
     action: classifyChange({ diffText, proposalType: proposal.type, skill: proposal.skill }).level,
     attempts: outcome.attempts,
@@ -228,7 +230,17 @@ export async function runReviewSupervisor(deps: ReviewSupervisorDeps): Promise<S
     try {
       const runJson = JSON.parse(runRaw) as Record<string, unknown>;
       runJson.status = status === "reviewed" ? "reviewed" : status === "rejected" ? "rejected" : "review_failed";
-      runJson.review = { status, verdict: verdict ?? null, action: record.action, reviewerModel, proposerModel, sameModel };
+      runJson.review = {
+        status,
+        verdict: verdict ?? null,
+        action: record.action,
+        reviewerModel,
+        proposerModel,
+        sameModel,
+        // 摘要写回 run.json：列表与详情页共用一存，不用为一句结论另开文件
+        summary: outcome.result.summary ?? null,
+        passed: outcome.result.passed.length,
+      };
       write(runFile, `${JSON.stringify(runJson, null, 2)}\n`);
     } catch (error) {
       log(`[skill-evolve] 评审结论写不回 run.json：${(error as Error).message}`);

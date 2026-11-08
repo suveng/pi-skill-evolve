@@ -72,11 +72,15 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
     "",
     "## 输出格式（严格遵守，只输出 JSON，不要代码围栏、不要解释）",
     '{"verdict":"pass|reject|revise",',
+    ' "summary":"一句话结论（≤80 字，必须写清因为什么）",',
     ' "blocking":[{"issue":"...","evidence":{"file":"...","line":42,"quote":"原文"}}],',
+    ' "passed":[{"point":"...","evidence":{"file":"...","line":42,"quote":"原文"}}],',
     ' "notes":"..."}',
     "",
     `技能名：${input.skillName}`,
-    "说明：blocking 每条都必须给 file/line/quote（quote 是被改动文件里的原文片段）；没有问题时 verdict=pass 且 blocking=[]。",
+    "说明：summary 必填，不要写成「没问题」或「建议修改」这种没有原因的空话，要写「因为哪一句 / 少哪一项所以这个结论」。",
+    "blocking 每条都必须给 file/line/quote（quote 是被改动文件里的原文片段）；verdict=reject/revise 时 blocking 至少 1 条。",
+    "passed 写「哪一点没问题 + 支撑它的原文」；verdict=pass 时 blocking=[] 且 passed 至少 1 条（只写「通过」两个字等于没说）。",
     "",
   ].join("\n");
 }

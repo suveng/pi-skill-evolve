@@ -33,6 +33,14 @@ export interface RunBlocking {
   quote: string;
 }
 
+/** 通过理由（03-review.json 的 passed）：哪一点没问题 + 支撑它的原文 */
+export interface RunPassing {
+  point: string;
+  file: string;
+  line: number | null;
+  quote: string;
+}
+
 export interface RunGate {
   gate: string;
   name: string;
@@ -70,8 +78,18 @@ export interface RunDetail {
   /** candidate 目录里的技能名（与 skill 一致才读全文） */
   candidateSkill: string | null;
   candidateText: string | null;
-  review: { status: string; verdict: string; action: string; reviewerModel: string } | null;
+  review: {
+    status: string;
+    verdict: string;
+    action: string;
+    reviewerModel: string;
+    summary: string | null;
+    /** 03-review.json 里连 summary / passed 两个键都没有 = v0.1.9 之前写的记录（详情页要说旧版，而不是说「没给理由」） */
+    legacy: boolean;
+  } | null;
   blocking: RunBlocking[];
+  /** 通过理由：旧 run 没有这个字段，读出来是空数组 */
+  passed: RunPassing[];
   gates: RunGate[];
   verifyStatus: string | null;
   findings: RunFinding[];
@@ -95,30 +113,40 @@ function exists(file: string): boolean {
   }
 }
 
-/** 03-review.json → verdict / action / reviewerModel + blocking（每条带 file:line 与原文引用） */
-function readReview(runDir: string): Pick<RunDetail, "review" | "blocking"> {
-  const raw = asRecord(readJson<unknown>(path.join(runDir, "03-review.json")));
-  if (!raw) return { review: null, blocking: [] };
-  const blocking: RunBlocking[] = [];
-  for (const item of Array.isArray(raw.blocking) ? raw.blocking : []) {
+/** 03-review.json 里的证据项 → 行上的 file / line / quote（blocking 与 passed 共用同一形状） */
+function readEvidenceRows<T>(items: unknown, build: (text: string, file: string, line: number | null, quote: string) => T): T[] {
+  const rows: T[] = [];
+  for (const item of Array.isArray(items) ? items : []) {
     const record = asRecord(item);
     if (!record) continue;
     const evidence = asRecord(record.evidence);
-    blocking.push({
-      issue: asText(record.issue, "（未写问题描述）"),
-      file: asText(evidence?.file),
-      line: asNumber(evidence?.line),
-      quote: asText(evidence?.quote),
-    });
+    const text = asText(record.issue) || asText(record.point) || "（未写说明）";
+    rows.push(build(text, asText(evidence?.file), asNumber(evidence?.line), asText(evidence?.quote)));
   }
+  return rows;
+}
+
+/**
+ * 03-review.json → verdict / action / reviewerModel / summary + blocking + passed。
+ * 旧版评审产出的文件没有 summary / passed：summary 读成 null、passed 读成空数组（不抛、不补造）。
+ */
+function readReview(runDir: string): Pick<RunDetail, "review" | "blocking" | "passed"> {
+  const raw = asRecord(readJson<unknown>(path.join(runDir, "03-review.json")));
+  if (!raw) return { review: null, blocking: [], passed: [] };
+  const blocking = readEvidenceRows<RunBlocking>(raw.blocking, (issue, file, line, quote) => ({ issue, file, line, quote }));
+  const passed = readEvidenceRows<RunPassing>(raw.passed, (point, file, line, quote) => ({ point, file, line, quote }));
   return {
     review: {
       status: asText(raw.status, "（未写状态）"),
       verdict: asText(raw.verdict, "（未写 verdict）"),
       action: asText(raw.action, "（未写 action）"),
       reviewerModel: asText(raw.reviewerModel, "（未写模型）"),
+      summary: asText(raw.summary, "") || null,
+      // 两个键都不存在才算旧记录：新版即使评审失败也会写 passed: []（空数组也是一个键），不能混谈
+      legacy: raw.summary === undefined && raw.passed === undefined,
     },
     blocking,
+    passed,
   };
 }
 

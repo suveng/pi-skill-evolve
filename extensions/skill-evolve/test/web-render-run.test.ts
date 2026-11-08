@@ -43,7 +43,15 @@ function detail(parts: Partial<RunDetail> = {}): RunDetail {
     diff: DIFF_TEXT,
     candidateSkill: "demo",
     candidateText: "---\nname: demo\n---\n# 改后\n",
-    review: { status: "rejected", verdict: "revise", action: "forbidden", reviewerModel: "deepseek/deepseek-flash" },
+    // 默认形态 = 仓库里真实的老 run（354df7db-1794133942）：03-review.json 没有 summary / passed
+    review: {
+      status: "rejected",
+      verdict: "revise",
+      action: "forbidden",
+      reviewerModel: "deepseek/deepseek-flash",
+      summary: null,
+      legacy: true,
+    },
     blocking: [
       {
         issue: "描述承诺大于正文能力",
@@ -52,6 +60,7 @@ function detail(parts: Partial<RunDetail> = {}): RunDetail {
         quote: "<script> 引用",
       },
     ],
+    passed: [],
     gates: [
       { gate: "gate0", name: "授权核对", ok: true, detail: "" },
       { gate: "gate3", name: "复验", ok: false, detail: "复验失败" },
@@ -101,9 +110,69 @@ test("评审结论：verdict/action/模型 + blocking 表格（file:line 与引�
   assert.match(html, /verdict <b class="fail">revise<\/b>/);
   assert.match(html, /action <b>forbidden<\/b>/);
   assert.match(html, /<code>deepseek\/deepseek-flash<\/code>/);
+  assert.match(html, /<h3>阻断意见<\/h3>/);
   assert.match(html, /<td>描述承诺大于正文能力<\/td><td><code>\.pi\/skills\/demo\/SKILL\.md:3<\/code><\/td>/);
   assert.match(html, /&lt;script&gt; 引用/, "引用原文也要转义");
   assert.equal(html.includes('"blocking"'), false, "blocking 要做成表格，不许把 JSON 直接倒出来");
+});
+
+test("评审结论：summary 用大一号的字单独一行，排在 verdict 之后、理由表之前", () => {
+  const html = renderRunPage(
+    detail({ review: { ...detail().review!, summary: "因为 description 承诺了正文没有的能力", legacy: false } }),
+    { state: state() },
+  );
+  assert.match(html, /<p class="verdict-summary">因为 description 承诺了正文没有的能力<\/p>/);
+  const summaryAt = html.indexOf('class="verdict-summary"');
+  assert.ok(summaryAt > html.indexOf('class="kv-line"'), "摘要要在 verdict 那一行之后");
+  assert.ok(summaryAt < html.indexOf("<h3>阻断意见</h3>"), "摘要要在理由表之前");
+});
+
+test("评审结论：通过时列通过理由表（通过点 + 证据），不写阻断意见段", () => {
+  const html = renderRunPage(
+    detail({
+      status: "reviewed",
+      review: { status: "reviewed", verdict: "pass", action: "auto", reviewerModel: "m", summary: "新增条款只约束脚本用法，未碰原有禁令", legacy: false },
+      blocking: [],
+      passed: [{ point: "没有删除任何明确禁止项", file: "<b>", line: 5, quote: "一律用 rg" }],
+    }),
+    { state: state() },
+  );
+  assert.match(html, /verdict <b class="ok">pass<\/b>/);
+  assert.match(html, /<h3>通过理由<\/h3>/);
+  assert.match(html, /<th>通过点<\/th>/);
+  assert.match(html, /<td>没有删除任何明确禁止项<\/td>/);
+  assert.match(html, /&lt;b&gt;:5/, "证据里的尖括号也要转义");
+  assert.equal(html.includes("阻断意见"), false, "没有 blocking 就没有阻断意见段");
+});
+
+test("评审结论：旧 run 没有 summary / passed 时显示兜底文案，不把空表当结论", () => {
+  const html = renderRunPage(detail(), { state: state() });
+  assert.match(html, /该 run 由旧版评审产出，没有结论摘要（重跑一次就有）/);
+  assert.equal(html.includes("通过理由"), false);
+  assert.equal(html.includes("只写了结论，没写理由"), false, "旧 run 已有兜底文案，不再叠一句");
+});
+
+test("评审结论：新版评审失败（无 summary，但写了 passed 键）说「没给理由」，不说成旧版", () => {
+  const html = renderRunPage(
+    detail({
+      status: "review_failed",
+      review: { status: "review_failed", verdict: "（未写 verdict）", action: "（未写 action）", reviewerModel: "m", summary: null, legacy: false },
+      blocking: [],
+      passed: [],
+    }),
+    { state: state() },
+  );
+  assert.match(html, /这一轮评审只写了结论，没写理由/);
+  assert.equal(html.includes("旧版评审产出"), false, "新版评审失败不能标成旧版");
+});
+
+test("评审结论：新版评审两个理由表都空时说「只写了结论，没写理由」，不要说成旧版", () => {
+  const html = renderRunPage(
+    detail({ review: { ...detail().review!, summary: "跳过评审（配置关闭）", legacy: false }, blocking: [], passed: [] }),
+    { state: state() },
+  );
+  assert.match(html, /03-review\.json 里没有 blocking \/ passed：这一轮评审只写了结论，没写理由。/);
+  assert.equal(html.includes("旧版评审产出"), false);
 });
 
 test("五闸：逐条 ok/fail 上色，失败那条带说明", () => {
