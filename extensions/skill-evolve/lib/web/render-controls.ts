@@ -21,7 +21,7 @@ import {
   telemetryOffWhileEnabled,
 } from "../flags.ts";
 import type { WebView } from "./data.ts";
-import { RANGE_KEYS, RANGE_LABEL, STATUS_OPTIONS, type ListFilter, type ViewPage } from "./filter.ts";
+import { RANGE_KEYS, RANGE_LABEL, STATUS_LABEL, STATUS_OPTIONS, type ListFilter, type ViewPage } from "./filter.ts";
 import { listHref, type ListExtras } from "./list-query.ts";
 import { escapeHtml, formatStamp, formatTimeSeconds } from "./text.ts";
 import type { WebControls } from "./activity.ts";
@@ -110,7 +110,8 @@ ${warn}${backlog}`;
 function statusSelect(current: string): string {
   const options = [`<option value="">全部状态</option>`];
   for (const status of STATUS_OPTIONS) {
-    options.push(`<option value="${status}"${status === current ? " selected" : ""}>${status}</option>`);
+    // value 仍是状态机原文（过滤逻辑不变），只把展示换中文
+    options.push(`<option value="${status}"${status === current ? " selected" : ""}>${STATUS_LABEL[status]}</option>`);
   }
   return options.join("");
 }
@@ -129,7 +130,7 @@ export function renderFilterForm(view: WebView, filter: ListFilter, extras: List
   const keep = extraInputs(extras);
   return `<form class="filter" method="get">
 <input type="hidden" name="view" value="${view}">
-${keep}<label>技能 <input type="text" name="skill" value="${escapeHtml(filter.skill)}" placeholder="全部技能" size="16"></label>
+${keep}<label>技能 <input type="text" name="skill" value="${escapeHtml(filter.skill)}" placeholder="技能名包含…" size="16"></label>
 <label>状态 <select name="status">${statusSelect(filter.status)}</select></label>
 <label>时间 <select name="range">${rangeSelect(filter.range)}</select></label>
 <button type="submit">筛选</button>
