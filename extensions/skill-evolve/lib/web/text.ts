@@ -44,6 +44,63 @@ export function shortRunId(runId: string): string {
 }
 
 /**
+ * 列表「操作」列里的 runId：只留末 8 位（真实数据的 9 条 run 前 8 位完全相同，
+ * 保留前缀等于没显示）。完整 id 交给链接的 `title`。
+ */
+export function tailRunId(runId: string): string {
+  return runId.length > 8 ? `…${runId.slice(-8)}` : runId;
+}
+
+/** 同一个本地日期（列表「今天只写时分」的判据） */
+function sameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+const pad2 = (value: number): string => String(value).padStart(2, "0");
+
+/** `HH:mm`：会话页每条消息的时钟 */
+export function formatTime(ts: number): string {
+  const date = new Date(ts);
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
+
+/** `HH:mm:ss`：消息流抬头用（同一分钟内的多条要能分先后） */
+export function formatTimeSeconds(ts: number | null): string {
+  if (ts === null || !Number.isFinite(ts)) return "—";
+  const date = new Date(ts);
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+}
+
+/**
+ * 列表「时间」列：今天只写 `19:35`，更早的写 `11-07 18:24`。
+ * 一列里全是完整日期时，今天那几条反而最难扫（要对比年月日才知道是刚才还是前天）。
+ */
+export function formatClock(ts: number | null, now: number): string {
+  if (ts === null || !Number.isFinite(ts)) return "—";
+  const date = new Date(ts);
+  const clock = `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+  if (sameDay(date, new Date(now))) return clock;
+  return `${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${clock}`;
+}
+
+/** 完整时刻放 `title`：悬停要能看到可复制、可跨天比对的绝对时间 */
+export function formatIso(ts: number | null): string {
+  if (ts === null || !Number.isFinite(ts)) return "—";
+  return new Date(ts).toISOString();
+}
+
+/** 会话页概要里的时间段：同一天写 `10:32 → 11:52`，跨天把日期带上 */
+export function formatSpan(start: number | null, end: number | null): string {
+  if (start === null || end === null) return "—";
+  const first = new Date(start);
+  const last = new Date(end);
+  const clock = (date: Date): string => `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+  if (sameDay(first, last)) return `${clock(first)} → ${clock(last)}`;
+  const day = (date: Date): string => `${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${clock(date)}`;
+  return `${day(first)} → ${day(last)}`;
+}
+
+/**
  * 详情第一行永远是完整 runId：列表上显示的是缩写，复制要靠这一行。
  * 文案里带 `runId：` 前缀是因为详情区是纯文本，没有别的办法标出这一行是什么。
  */

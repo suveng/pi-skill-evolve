@@ -1,142 +1,145 @@
 /**
- * 列表行的渲染：五种视图（待处理 / 待审批 / 已采纳 / 已处理 / 复盘报告）各一段，加上每行针对那条 run 的操作按钮。
+ * 列表行的渲染：五种视图（待处理 / 待审批 / 已采纳 / 已处理 / 复盘报告）先各自映射成同一份 `ListRow`，
+ * 再由这里的表格与分组渲染成 HTML。
  *
- * 为什么单独一个文件：行渲染是面板里最长的一段（抬头 + 详情 + 行内表单），
- * 和页面骨架（状态栏 / 导航 / 页脚）混在一起必然破 300 行。
+ * 为什么分两步：五个视图的数据字段不同（提议数在 applied、verdict 在 approvals、findings 在 reports），
+ * 但「一行长什么样」必须完全一致 —— 否则同一个人在两页看到的徽章颜色与操作位置都不一样。
+ * 映射（本文件的 `xxxRows`）负责取数与措辞，渲染（./render-table.ts）负责表格、分组。
+ * 拆两个文件是因为「取数」与「画表」各自都会长；合在一起必然破 300 行。
  *
- * 行的操作只有三个（重跑 / 清理 / 看日志），且**只在待处理与复盘报告页**出现：
- * 待审批页逐行就是批准/拒绝，已采纳与已处理页是档案（只给看 diff / 看日志），都不挂「重跑」——
- * 一个已采纳的 run 旁边放「重跑」按钮，只会让人以为它能重放整个采纳流程。
- *
- * 按钮只在 `writable` 且拿到 csrf 时渲染，绝不自己造一个「能点但写不动」的按钮；
- * 「看日志」是只读 GET，只读面板也照常给（它不写任何东西）。
+ * 三条取舍：
+ * 1. **不再把 runId 当主标识**：真实数据里同一个会话的 9 条 run 前 8 位完全一样（`354df7db…`），
+ *    拿它当抬头等于每行都在报同一串字符。runId 只留在操作列里，显示末 8 位、`title` 放完整值。
+ * 2. **操作是小号链接，不是每行两个大按钮**：一行一条 run，按钮比信息显眼就本末倒置了。
+ * 3. **同一会话的多条 run 收进一个 `<details>`**：9 条 run 逐行重复「重跑 / 日志」正是原来列表被压没的原因。
  */
 import type { AppliedItem, ApprovalItem, DoneItem, PendingItem, RunReport, WebView } from "./data.ts";
 import type { SessionRef } from "./run-session.ts";
-import { sessionHref } from "./run-session.ts";
-import { escapeHtml, formatStamp, shortRunId, withId } from "./text.ts";
+import { escapeHtml } from "./text.ts";
 
 /** 行内操作需要的上下文：csrf 与 canWrite 决定按钮渲不渲染，view 决定动作做完回哪一页 */
 export interface RowContext {
   csrf: string;
   writable: boolean;
   view: WebView;
+  /** 现时：决定时间列写 `19:35` 还是 `11-07 18:24` */
+  now: number;
 }
 
-/**
- * 抬头里的 runId 做成链接（点进去看 run 详情页：diff / 评审 / 五闸）。
- *
- * 实现上**先整段转义、再把 shortRunId 那一段换成锚点**：抬头文本来自磁盘，
- * 绝不能先拼 HTML 再转义（会出现两次转义与注入两种毛病）。
- */
-function linkRunId(text: string, runId: string): string {
-  const short = escapeHtml(shortRunId(runId));
-  const index = text.indexOf(short);
-  if (index < 0) return text;
+/** 徽章颜色：同一个概念全站一色（灰=排队、蓝=等人、黄=在跑、绿=落地、红=卡死、暗红=被拒、淡灰=归档） */
+export type BadgeTone = "gray" | "blue" | "green" | "red" | "yellow" | "darkred" | "faint";
+
+export interface ListRow {
+  runId: string;
+  /** 状态徽章：`title` 放不能进表格的次要事实（五闸结论 / 层级 / 目标文件 / 失败原因） */
+  badge: { text: string; tone: BadgeTone; title: string };
+  /** 该条自己的时间；null 表示读不到（时间列写「—」，不拿别的字段冒充） */
+  at: number | null;
+  skill: string;
+  /** 提案改动行数；没有提案（还没出稿）就是 null，列里写「—」 */
+  delta: { type: string; added: number; removed: number } | null;
+  session: SessionRef;
+  /** 操作列（已转义的 HTML 片段） */
+  ops: string;
+  /** 要不要人动手：组标题的「N 条需要处理」靠它算 */
+  needsAction: boolean;
+}
+
+/** 详情链接：文字是 runId 末 8 位，`title` 是完整 runId（真实数据前 8 位全同，只能靠尾巴区分） */
+function detailLink(runId: string): string {
   const href = escapeHtml(`/?view=run&runId=${encodeURIComponent(runId)}`);
-  const anchor = `<a class="run" href="${href}">${short}</a>`;
-  return `${text.slice(0, index)}${anchor}${text.slice(index + short.length)}`;
+  // runId 只放 title 与详情页：末 8 位混在操作列里（详情 …94137752 · 重跑 · 日志）看着像乱码
+  return `<a class="rid" href="${href}" title="${escapeHtml(runId)}">详情</a>`;
 }
 
-/**
- * 「会话」列：pi sessionId 前 8 位做成链接，点进去看那段对话的原文（`?view=session`）。
- *
- * 为什么必须有（用户 2026-11-08：「面板展示的也应该是 pi sessionId 否则我都不知道怎么看对应会话」）：
- * 行上原来只有 runId（会话哈希8 + 时间戳），对着 TUI 里的 sessionId 对不上号，
- * 想回去看那段对话只能自己到 `~/.pi/agent/sessions/` 里翻。
- * 只显示前 8 位是为了不把一行撑开；完整 id 放进 `title`（悬停可见），链接里带完整 id。
- */
-function sessionCell(session: SessionRef | undefined): string {
-  const href = session === undefined ? null : sessionHref(session);
-  if (href === null || session === undefined || session.sessionId === null) {
-    // 老 run.json 可能没有 sessionId：写「—」而不是凭空造一个空链接（点进去只会 404）
-    return ' · <span class="hint">会话 —</span>';
-  }
-  return ` · <a class="sess" href="${escapeHtml(href)}" title="${escapeHtml(session.sessionId)}">会话 ${escapeHtml(
-    session.sessionId.slice(0, 8),
-  )}</a>`;
-}
-
-/** 行尾附加信息：runId 变链接、会话列（都可缺省，缺了就不渲染） */
-interface RowMeta {
-  runId?: string;
-  session?: SessionRef;
-}
-
-/** 一行；detail 为空就不给 `<details>`（空折叠框比没有更烦）；给了 runId 就把抬头里的 runId 变链接 */
-function row(head: string, detail: string, acts = "", meta: RowMeta = {}): string {
-  const text = escapeHtml(head);
-  const linked = meta.runId === undefined ? text : linkRunId(text, meta.runId);
-  const rendered = `${linked}${sessionCell(meta.session)}`;
-  const inner =
-    detail.length === 0
-      ? `<span class="head">${rendered}</span>`
-      : `<details><summary class="head">${rendered}</summary><pre>${escapeHtml(detail)}</pre></details>`;
-  return acts.length === 0 ? `<li class="row">${inner}</li>` : `<li class="row">${inner}\n${acts}</li>`;
+function logLink(runId: string): string {
+  return `<a href="${escapeHtml(`/log?runId=${encodeURIComponent(runId)}`)}">日志</a>`;
 }
 
 /** 一个 `/action` 表单：csrf / name / runId / view 全走 hidden，按钮就是提交键 */
-function runForm(name: "rerun" | "cleanup", runId: string, ctx: RowContext): string {
-  const label = name === "rerun" ? "重跑" : "清理记录";
-  const cls = name === "rerun" ? "" : ' class="danger"';
-  const title = name === "rerun" ? "" : ' title="移到 runs/.trash/，不会删数据"';
+function actionForm(name: "rerun" | "cleanup", runId: string, ctx: RowContext): string {
+  const label = name === "rerun" ? "重跑" : "清理";
+  const title = name === "rerun" ? "重跑这条 run（花 token）" : "移到 runs/.trash/，不会删数据";
   return `<form method="post" action="/action">
 <input type="hidden" name="csrf" value="${escapeHtml(ctx.csrf)}">
 <input type="hidden" name="name" value="${name}">
 <input type="hidden" name="runId" value="${escapeHtml(runId)}">
 <input type="hidden" name="view" value="${ctx.view}">
-<button type="submit"${cls}${title}>${label}</button>
+<button type="submit" title="${title}">${label}</button>
 </form>`;
 }
 
 /**
- * 行内操作条。`stale` 才给「清理记录」：清理是把目录移走，非卡死的 run 还在写盘，
- * 移走等于把活进程的 cwd 抽掉（Linux 上不报错，但之后的写入全进孤儿 inode）。
+ * 待处理 / 复盘报告的行操作：详情 + 重跑（+ 卡死时的清理）+ 日志。
+ * 清理只给 `stale`：非卡死的 run 还在写盘，把目录移走等于抽掉活进程的 cwd。
+ * 重跑只在可写面板出现 —— 只读面板给一个点了没反应的按钮等于骗人。
  */
-function rowActs(runId: string, ctx: RowContext, stale: boolean): string {
-  const parts: string[] = [];
+function activeOps(runId: string, ctx: RowContext, stale: boolean): string {
+  const parts = [detailLink(runId)];
   if (ctx.writable) {
-    parts.push(runForm("rerun", runId, ctx));
-    if (stale) parts.push(runForm("cleanup", runId, ctx));
+    parts.push(actionForm("rerun", runId, ctx));
+    if (stale) parts.push(actionForm("cleanup", runId, ctx));
   }
-  parts.push(`<a class="btn" href="/log?runId=${encodeURIComponent(runId)}">看日志</a>`);
-  return `<div class="acts">\n${parts.join("\n")}\n</div>`;
+  parts.push(logLink(runId));
+  return parts.join(" · ");
 }
 
-/** 档案类行的操作：只有两个只读链接（看 diff / 看日志），不挂重跑 */
-function archiveActs(runId: string): string {
-  const id = encodeURIComponent(runId);
-  return `<div class="acts">\n<a class="btn" href="${escapeHtml(`/?view=run&runId=${id}`)}">看 diff</a>\n<a class="btn" href="${escapeHtml(`/log?runId=${id}`)}">看日志</a>\n</div>`;
+/**
+ * 档案类（已采纳 / 已处理）的操作：只有详情与日志。
+ * 一个已采纳的 run 旁边放「重跑」，只会让人以为它能重放整个采纳流程。
+ */
+function archiveOps(runId: string): string {
+  return `${detailLink(runId)} · ${logLink(runId)}`;
 }
 
-export function pendingRows(items: readonly PendingItem[], ctx: RowContext): string {
-  const badge: Record<PendingItem["kind"], string> = { running: "进行中", approval: "待批", stale: "卡死", reviewed: "待入队" };
-  return items
-    .map((item) => {
-      const skill = item.skill.length > 0 ? ` · ${item.skill}` : "";
-      return row(
-        `[${badge[item.kind]}] ${shortRunId(item.runId)}${skill} · ${formatStamp(item.at)}`,
-        withId(item.runId, item.detail),
-        rowActs(item.runId, ctx, item.kind === "stale"),
-        { session: item.session },
-      );
-    })
-    .join("\n");
+/** 一个审批动作：csrf 与 runId 都走 hidden，按钮就是提交键 */
+function approvalForm(action: "approve" | "reject", item: ApprovalItem, csrf: string): string {
+  const label = action === "approve" ? "批准" : "拒绝";
+  return `<form method="post" action="/${action}">
+<input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
+<input type="hidden" name="runId" value="${escapeHtml(item.runId)}">
+<button type="submit"${action === "reject" ? ' class="reject"' : ""}>${label}</button>
+</form>`;
 }
 
-export function doneRows(items: readonly DoneItem[]): string {
-  return items
-    .map((item) => {
-      const skill = item.skill.length > 0 ? ` · ${item.skill}` : "";
-      const level = item.level === "-" ? "" : ` · ${item.level}`;
-      return row(
-        `[${item.status}] ${shortRunId(item.runId)}${skill}${level} · ${formatStamp(item.at)}`,
-        withId(item.runId, item.detail),
-        archiveActs(item.runId),
-        { runId: item.runId, session: item.session },
-      );
-    })
-    .join("\n");
+/** 待处理：四种 kind 各一个徽章；「待入队」是灰的（它在排队，不需要人动手） */
+export function pendingRows(items: readonly PendingItem[], ctx: RowContext): ListRow[] {
+  const badge: Record<PendingItem["kind"], { text: string; tone: BadgeTone }> = {
+    running: { text: "复盘中", tone: "yellow" },
+    approval: { text: "待审批", tone: "blue" },
+    stale: { text: "卡死", tone: "red" },
+    reviewed: { text: "待入队", tone: "gray" },
+  };
+  return items.map((item) => ({
+    runId: item.runId,
+    badge: { ...badge[item.kind], title: item.detail },
+    at: item.at,
+    skill: item.skill,
+    delta: null,
+    session: item.session,
+    ops: activeOps(item.runId, ctx, item.kind === "stale"),
+    needsAction: item.kind === "stale" || item.kind === "approval",
+  }));
+}
+
+/** 已处理：终态各一色；被拒绝是暗红（是结论，不是故障），失败才是红 */
+export function doneRows(items: readonly DoneItem[]): ListRow[] {
+  const tone: Record<string, { text: string; tone: BadgeTone }> = {
+    applied: { text: "已采纳", tone: "green" },
+    rejected: { text: "已拒绝", tone: "darkred" },
+    failed: { text: "失败", tone: "red" },
+    rolledback: { text: "已回滚", tone: "faint" },
+  };
+  return items.map((item) => ({
+    runId: item.runId,
+    badge: { ...(tone[item.status] ?? { text: item.status, tone: "faint" as BadgeTone }), title: item.detail },
+    at: item.at,
+    skill: item.skill,
+    delta: null,
+    session: item.session,
+    ops: archiveOps(item.runId),
+    needsAction: false,
+  }));
 }
 
 /** 五闸一句话：没记录时写「无记录」而不是「失败」（判不了 ≠ 没过） */
@@ -146,138 +149,77 @@ function gateText(item: AppliedItem): string {
   return failed === 0 ? "五闸：全 ok" : `五闸：${failed} 项失败`;
 }
 
-function appliedDetail(item: AppliedItem): string {
-  const gates =
-    item.gates.length === 0
-      ? ["五闸：没有 06-verify.json（无法判定）"]
-      : item.gates.map((gate) => `  ${gate.gate} ${gate.name} ${gate.ok ? "✓" : "✗"}`);
-  return [
-    `层级：${item.level}`,
-    `采纳：${formatStamp(item.appliedAt)}`,
-    `提案：${item.type} +${item.added}/-${item.removed} 行`,
-    ...gates,
-    item.gatesOk === false ? "注意：有闸没过却仍被采纳，先看 06-verify.json" : "",
-    "完整 diff：点上方 runId 进详情页",
-  ]
-    .filter((line) => line.length > 0)
-    .join("\n");
-}
-
 /** 已采纳：技能 · 提案类型 · +N/-M · 采纳时间 · 五闸结论（用户要的就是这五个字段） */
-export function appliedRows(items: readonly AppliedItem[]): string {
-  return items
-    .map((item) => {
-      const skill = item.skill.length > 0 ? ` · ${item.skill}` : "";
-      const delta = ` · ${item.type} +${item.added}/-${item.removed}`;
-      return row(
-        `[applied] ${shortRunId(item.runId)}${skill}${delta} · ${formatStamp(item.appliedAt)} · ${gateText(item)}`,
-        appliedDetail(item),
-        archiveActs(item.runId),
-        { runId: item.runId, session: item.session },
-      );
-    })
-    .join("\n");
+export function appliedRows(items: readonly AppliedItem[]): ListRow[] {
+  return items.map((item) => ({
+    runId: item.runId,
+    badge: { text: "已采纳", tone: "green", title: `${item.level} 级 · ${gateText(item)}` },
+    at: item.appliedAt,
+    skill: item.skill,
+    delta: { type: item.type, added: item.added, removed: item.removed },
+    session: item.session,
+    ops: archiveOps(item.runId),
+    needsAction: false,
+  }));
 }
 
-/** 待批条目的抬头：一眼看到「谁、改多少、评审怎么判」，详情留给 targets 与完整 runId */
-function approvalHead(item: ApprovalItem): string {
-  const proposal = item.proposal ? ` · ${item.proposal.type} +${item.proposal.added}/-${item.proposal.removed}` : " · 无提案";
-  const verdict = item.review ? ` · ${item.review.verdict ?? "无 verdict"}/blocking ${item.review.blocking}` : "";
-  return `[${item.level}] ${shortRunId(item.runId)} · ${item.skill}${proposal}${verdict} · ${formatStamp(item.createdAt)}`;
+/** 待审批：每条都要人动手，所以整页 `needsAction` 全是 true */
+export function approvalRows(items: readonly ApprovalItem[], ctx: RowContext): ListRow[] {
+  return items.map((item) => {
+    const ops = ctx.writable
+      ? `${approvalForm("approve", item, ctx.csrf)} · ${approvalForm("reject", item, ctx.csrf)} · ${detailLink(item.runId)}`
+      : detailLink(item.runId);
+    const facts = [
+      `${item.level} 级（必须人批）`,
+      `目标：${item.targets.join("、") || "（未写 targets）"}`,
+      item.review ? `评审：verdict=${item.review.verdict ?? "（未写）"} · blocking ${item.review.blocking} 条` : "评审：读不到 03-review.json",
+    ].join(" · ");
+    return {
+      runId: item.runId,
+      badge: { text: "待审批", tone: "blue", title: facts },
+      at: item.createdAt,
+      skill: item.skill,
+      delta: item.proposal
+        ? { type: item.proposal.type, added: item.proposal.added, removed: item.proposal.removed }
+        : null,
+      session: item.session,
+      ops,
+      needsAction: true,
+    };
+  });
 }
 
-function approvalDetail(item: ApprovalItem): string {
-  return [
-    `层级：${item.level}（必须人批；auto 级不在这里）`,
-    `目标：${item.targets.join("、") || "（未写 targets）"}`,
-    `入队：${formatStamp(item.createdAt)}`,
-    item.proposal
-      ? `提案：${item.proposal.type} +${item.proposal.added}/-${item.proposal.removed} 行`
-      : "提案：读不到 02-proposal.json",
-    item.review ? `评审：verdict=${item.review.verdict ?? "（未写）"} · blocking ${item.review.blocking} 条` : "评审：读不到 03-review.json",
-    item.detail ? `备注：${item.detail}` : "",
-  ]
-    .filter((line) => line.length > 0)
-    .join("\n");
+/** 复盘报告：状态文案直接取 run 状态（analyzed 写「已分析」，stale 写「卡死」） */
+export function reportRows(reports: readonly RunReport[], ctx: RowContext): ListRow[] {
+  const tone: Record<string, { text: string; tone: BadgeTone }> = {
+    analyzed: { text: "已分析", tone: "gray" },
+    applied: { text: "已采纳", tone: "green" },
+    rejected: { text: "已拒绝", tone: "darkred" },
+    running: { text: "复盘中", tone: "yellow" },
+    stale: { text: "卡死", tone: "red" },
+    failed: { text: "失败", tone: "red" },
+  };
+  return reports.map((report) => {
+    const facts = [
+      `触发：${report.trigger}`,
+      `findings：${report.findings.total} 条`,
+      report.review ? `评审：${report.review.status} · blocking ${report.review.blocking} 条` : "评审：无",
+      report.failure ?? "",
+    ]
+      .filter((line) => line.length > 0)
+      .join(" · ");
+    return {
+      runId: report.runId,
+      badge: { ...(tone[report.status] ?? { text: report.status, tone: "faint" as BadgeTone }), title: facts },
+      at: report.startedAt,
+      skill: report.proposal?.skill ?? "",
+      delta: report.proposal
+        ? { type: report.proposal.type, added: report.proposal.added, removed: report.proposal.removed }
+        : null,
+      session: report.session,
+      ops: activeOps(report.runId, ctx, report.status === "stale"),
+      needsAction: report.status === "stale",
+    };
+  });
 }
 
-/** 一个审批动作表单：csrf 与 runId 都走 hidden，按钮就是提交键 */
-function actionForm(action: "approve" | "reject", item: ApprovalItem, csrf: string): string {
-  const label = action === "approve" ? "批准" : "拒绝";
-  const cls = action === "approve" ? "" : ' class="reject"';
-  return `<form method="post" action="/${action}">
-<input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
-<input type="hidden" name="runId" value="${escapeHtml(item.runId)}">
-<button type="submit"${cls}>${label}</button>
-</form>`;
-}
-
-export function approvalRows(items: readonly ApprovalItem[], ctx: RowContext): string {
-  return items
-    .map((item) => {
-      const detail = `<details><summary class="head">${escapeHtml(approvalHead(item))}${sessionCell(
-        item.session,
-      )}</summary><pre>${escapeHtml(
-        withId(item.runId, approvalDetail(item)),
-      )}</pre></details>`;
-      if (!ctx.writable) return `<li class="row">${detail}</li>`;
-      const acts = `<div class="acts">\n${actionForm("approve", item, ctx.csrf)}\n${actionForm("reject", item, ctx.csrf)}\n</div>`;
-      return `<li class="row">${detail}\n${acts}</li>`;
-    })
-    .join("\n");
-}
-
-function gateLine(report: RunReport): string {
-  if (!report.verify) return "验证：还没跑过五闸（未采纳）";
-  const marks = report.verify.gates.map((gate) => `${gate.gate}${gate.ok ? "✓" : "✗"}`).join(" ");
-  return `验证：${report.verify.status} · ${formatStamp(report.verify.at)} · ${marks || "（未记录闸门）"}`;
-}
-
-/** 报告的展开内容：按「结论 → 依据 → 执行」的顺序排，最后才是数字，方便先看结论 */
-function reportDetail(report: RunReport): string {
-  const lines = [`状态：${report.status} · 触发：${report.trigger} · 开始：${formatStamp(report.startedAt)}`];
-  // 失败留档先给原因与日志末行：先知道“为什么没有 findings”，再看其它字段
-  if (report.failure) lines.push(report.failure);
-  const rows = report.findings.rows.map((item) => `  · ${item.skill} · ${item.kind} · ${item.reason}`);
-  lines.push(`findings：${report.findings.total} 条`);
-  lines.push(...rows);
-  if (report.findings.total > report.findings.rows.length) {
-    lines.push(`  …另有 ${report.findings.total - report.findings.rows.length} 条（见 01-findings.json）`);
-  }
-  lines.push(
-    report.proposal
-      ? `提案：${report.proposal.type} ${report.proposal.skill} +${report.proposal.added}/-${report.proposal.removed}`
-      : "提案：无",
-  );
-  lines.push(
-    report.review
-      ? `评审：${report.review.status}${report.review.verdict ? ` verdict=${report.review.verdict}` : ""} · blocking ${report.review.blocking} 条`
-      : "评审：无",
-  );
-  lines.push(
-    report.decision
-      ? `决策：${report.decision.status} · ${report.decision.approver} · ${formatStamp(report.decision.at)}${report.decision.detail ? ` · ${report.decision.detail}` : ""}`
-      : "决策：未采纳（没有 04-decision.json）",
-  );
-  lines.push(gateLine(report));
-  return lines.join("\n");
-}
-
-export function reportRows(reports: readonly RunReport[], ctx: RowContext): string {
-  return reports
-    .map((report) => {
-      // 行上就要能看出「有没有东西」：全部折叠成一行状态+时间，等于用户得逐个点开才知道
-      const findings = report.findings.total > 0 ? ` · ${report.findings.total} 条发现` : " · 无发现";
-      const proposal = report.proposal ? ` · ${report.proposal.type} ${report.proposal.skill}` : "";
-      const verdict = report.review?.verdict ? ` · ${report.review.verdict}` : "";
-      // 卡死的 run 与其它状态同样重要，但中文标签才有用：行首就是用户扫的关键词
-      const label = report.status === "stale" ? "卡死" : report.status;
-      return row(
-        `[${label}] ${shortRunId(report.runId)}${findings}${proposal}${verdict} · ${formatStamp(report.startedAt)}`,
-        withId(report.runId, reportDetail(report)),
-        rowActs(report.runId, ctx, report.status === "stale"),
-        { runId: report.runId, session: report.session },
-      );
-    })
-    .join("\n");
-}

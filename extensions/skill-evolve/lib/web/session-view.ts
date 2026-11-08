@@ -1,5 +1,5 @@
 /**
- * 会话详情页的**纯函数**：把 pi 的会话 JSONL 解析成「可渲染的块」，再拼成 HTML 片段。
+ * 会话详情页的**纯函数**：把 pi 的会话 JSONL 解析成「可渲染的块」，再拼成 HTML 片段与目录。
  *
  * 为什么要这一页（用户 2026-11-08：「支持打开会话的详情, 工具调用可收起展开, 默认收起」）：
  * 面板上每条 run 都关联一段 pi 会话，出问题时要看的是「那段对话里到底发生了什么」——
@@ -9,14 +9,15 @@
  * - 只取顶层 `type === "message"` 的条目，其余（session / model_change / thinking_level_change / custom）全跳过；
  * - `message.role` = user / assistant / toolResult / system；system 不渲染（它是系统提示词，不是对话）；
  * - assistant 的内容里 `text` 是给人看的、`thinking` 不渲染、`toolCall` 聚成折叠块；
- * - toolResult 消息按 `toolCallId` 回连到那次调用（结果贴在该调用的参数之后）。
+ * - toolResult 消息按 `toolCallId` 回连到那次调用（结果贴在该调用的参数之后）；
+ * - 时间取该条 JSONL 记录顶层的 `timestamp`（ISO 字符串），拿不到就是 null。
  *
  * 三条上限（会话可能很大，页面不能被一段对话撑爆浏览器）：
  * 只渲染最后 200 条消息 · 单条 4000 字 · 用户原文 2000 字 · 总输出超 2MB 就停手并指路原文件。
  *
- * 这个文件里**没有一行 IO**：入参是字符串，出参是 HTML 字符串，所以能直接拿临时 JSONL 片段做单测。
+ * 这个文件里**没有一行 IO**：入参是字符串，出参是数据结构，所以能直接拿临时 JSONL 片段做单测。
+ * HTML 与目录在 ./session-render.ts —— 解析与渲染各自都够一屏，混在一起必然破 300 行。
  */
-import { escapeHtml } from "./text.ts";
 
 /** 只渲染最后多少条 message（更早的对话对排查当前问题几乎无用） */
 export const MAX_MESSAGES = 200;
@@ -24,8 +25,10 @@ export const MAX_MESSAGES = 200;
 export const MAX_TEXT = 4000;
 /** 用户消息正文上限：用户要的是「原文」，所以给得比 assistant 宽，但仍要防一次粘贴几万字 */
 export const MAX_USER_TEXT = 2000;
-/** 一次工具调用的参数摘要上限 */
+/** 一次工具调用的参数摘要上限（目录与折叠抬头只用 60 字，见 `TOOL_PREVIEW`） */
 export const MAX_ARGS = 400;
+/** 折叠抬头里那句「调了什么」的上限：一行看得完，不抢工具名的位置 */
+export const TOOL_SUMMARY = 60;
 /** 一次工具调用的结果上限 */
 export const MAX_RESULT = 200;
 /** 整页会话正文的输出上限（字符数，UTF-8 下中文 3 字节，这里按保守值算） */
@@ -33,16 +36,18 @@ export const MAX_OUTPUT = 2 * 1024 * 1024;
 
 export interface SessionToolCall {
   name: string;
-  /** 参数摘要（JSON 压成一行后截断） */
+  /** 参数原文（JSON 压成一行后截断）：展开后给「完整参数」看 */
   args: string;
+  /** 抬头摘要：按工具挑一个可读参数（见 `toolArgSummary`），取不到就是空串 */
+  summary: string;
   /** 结果前 200 字（没有结果就是「（没有结果）」） */
   result: string;
 }
 
 export type SessionEntry =
-  | { kind: "user"; text: string }
-  | { kind: "assistant"; text: string }
-  | { kind: "tools"; calls: SessionToolCall[] };
+  | { kind: "user"; text: string; at: number | null }
+  | { kind: "assistant"; text: string; at: number | null }
+  | { kind: "tools"; calls: SessionToolCall[]; at: number | null };
 
 /**
  * 解析中途的调用记录：结果（toolResult）总是排在携带 toolCall 的 assistant 消息**之后**，
@@ -52,6 +57,7 @@ interface RawCall {
   id: string;
   name: string;
   args: string;
+  summary: string;
 }
 
 export interface SessionTranscript {
@@ -62,12 +68,24 @@ export interface SessionTranscript {
   toolCalls: number;
   /** 因为只留最后 200 条而丢掉的消息条数 */
   dropped: number;
+  /** 第一条 / 最后一条消息的时间：概览卡片的「10:32 → 11:52」用它 */
+  firstAt: number | null;
+  lastAt: number | null;
 }
 
 /** 截断并加省略号：中文一行话也可能超长，所以在字符数上截，不在行上截 */
 function clip(text: string, max: number): string {
   const trimmed = text.trim();
   return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed;
+}
+
+/** 顶层时间戳：ISO 字符串或已是数字；解析不了就当没有（不拿当前时间冒充） */
+function stamp(record: Record<string, unknown>): number | null {
+  const raw = record.timestamp;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw !== "string") return null;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 /** 参数压成一行 JSON：多行缩进在面板里只会占满屏 */
@@ -83,6 +101,55 @@ function argumentsText(value: unknown): string {
     }
   }
   return clip(text.replace(/\s+/g, " "), MAX_ARGS);
+}
+
+/** bash 的 command：只要第一行（多行脚本会把抬头撑成一屏），`\n` 还原成空格，首尾引号去掉 */
+function commandHead(command: string | null): string | null {
+  if (command === null) return null;
+  const firstLine = command.split("\n")[0] ?? "";
+  return firstLine.replace(/\\n/g, " ").replace(/^[\s"'`]+|[\s"'`]+$/g, "");
+}
+
+/** 路径的文件名：`read /home/x/a.ts` 的抬头只值 `a.ts`，整条路径会把抬头挤满 */
+function basenameOf(path: string): string {
+  const parts = path.split("/").filter((part) => part.length > 0);
+  return parts.length > 0 ? (parts[parts.length - 1] as string) : path;
+}
+
+/** 参数对象里第一个非空字符串值：没有统一约定的工具就取它，总比一串 JSON 强 */
+function firstString(record: Record<string, unknown> | null): string | null {
+  if (record === null) return null;
+  for (const value of Object.values(record)) {
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return null;
+}
+
+/**
+ * 折叠抬头的参数摘要：**按工具取那一个可读参数**，绝不把整段 JSON 泄出来。
+ * `bash` → command 第一行；`read`/`edit`/`write` → path 的文件名；`rg`/`grep` → pattern；
+ * `compress` → 没有单一可读参数（整段对话都在入参里），留空只显示 `×N`；
+ * 其它工具取第一个字符串参数。取不到一律返回空串（抬头就只剩 `×N`）。
+ * 参数本身是裸字符串时（少数工具直接传字符串）就把它当那一个参数。
+ */
+export function toolArgSummary(name: string, args: unknown): string {
+  if (name === "compress") return "";
+  const record = typeof args === "object" && args !== null && !Array.isArray(args)
+    ? (args as Record<string, unknown>)
+    : null;
+  const single = typeof args === "string" ? args : null;
+  const field = (key: string): string | null => {
+    const value = record === null ? null : record[key];
+    return typeof value === "string" ? value : null;
+  };
+  let picked: string | null;
+  if (name === "bash") picked = commandHead(field("command") ?? single);
+  else if (name === "read" || name === "edit" || name === "write") {
+    const path = field("path") ?? single;
+    picked = path === null ? null : basenameOf(path);
+  } else if (name === "rg" || name === "grep") picked = field("pattern") ?? single;
+  else picked = firstString(record) ?? single;
+  return picked === null ? "" : clip(picked, TOOL_SUMMARY);
 }
 
 /** toolResult / user 的 content：可能是字符串，也可能是 [{type:"text",text}]，图片只留一句占位 */
@@ -115,10 +182,12 @@ function readAssistantParts(content: unknown): { text: string; calls: RawCall[] 
     const record = part as Record<string, unknown>;
     if (record.type === "text" && typeof record.text === "string") texts.push(record.text);
     else if (record.type === "toolCall") {
+      const name = typeof record.name === "string" && record.name.length > 0 ? record.name : "（未命名工具）";
       calls.push({
         id: typeof record.id === "string" ? record.id : "",
-        name: typeof record.name === "string" ? record.name : "（未命名工具）",
+        name,
         args: argumentsText(record.arguments),
+        summary: toolArgSummary(name, record.arguments),
       });
     }
   }
@@ -127,9 +196,10 @@ function readAssistantParts(content: unknown): { text: string; calls: RawCall[] 
 
 /** 解析整份 JSONL：坏行跳过（可能是进程被 kill 时写了一半的最后一行） */
 export function parseSessionText(raw: string): SessionTranscript {
-  type Pending = { entry: SessionEntry | { kind: "tools"; calls: RawCall[] }; roles: string[] };
+  type Pending = { entry: SessionEntry | { kind: "tools"; calls: RawCall[]; at: number | null }; roles: string[] };
   const kept: Pending[] = [];
   const results = new Map<string, string>();
+  const stamps: number[] = [];
   let messages = 0;
   for (const line of raw.split(/\r?\n/)) {
     if (line.trim().length === 0) continue;
@@ -144,7 +214,9 @@ export function parseSessionText(raw: string): SessionTranscript {
     if (typeof message !== "object" || message === null) continue;
     const fields = message as Record<string, unknown>;
     const role = typeof fields.role === "string" ? fields.role : "";
+    const at = stamp(record);
     messages += 1;
+    if (at !== null) stamps.push(at);
     if (role === "toolResult") {
       // 结果先存起来：它总是排在携带 toolCall 的那条 assistant 消息之后
       const id = typeof fields.toolCallId === "string" ? fields.toolCallId : "";
@@ -152,7 +224,7 @@ export function parseSessionText(raw: string): SessionTranscript {
       continue;
     }
     if (role === "user") {
-      kept.push({ entry: { kind: "user", text: contentText(fields.content) }, roles: [role] });
+      kept.push({ entry: { kind: "user", text: contentText(fields.content), at }, roles: [role] });
       continue;
     }
     if (role !== "assistant") continue; // system 是系统提示词，不是对话
@@ -160,8 +232,11 @@ export function parseSessionText(raw: string): SessionTranscript {
     if (parts.text.trim().length > 0) {
       const last = kept[kept.length - 1];
       // 一条 assistant 消息里「文本 + toolCall」并存：文本先出，工具另起一段，顺序与真实发生一致
-      if (last && last.roles[last.roles.length - 1] === "assistant-text") last.entry = { kind: "assistant", text: `${(last.entry as { text: string }).text}\n${parts.text}` };
-      else kept.push({ entry: { kind: "assistant", text: parts.text }, roles: ["assistant-text"] });
+      if (last && last.roles[last.roles.length - 1] === "assistant-text") {
+        last.entry = { kind: "assistant", text: `${(last.entry as { text: string }).text}\n${parts.text}`, at };
+      } else {
+        kept.push({ entry: { kind: "assistant", text: parts.text, at }, roles: ["assistant-text"] });
+      }
     }
     if (parts.calls.length > 0) {
       const last = kept[kept.length - 1];
@@ -169,7 +244,7 @@ export function parseSessionText(raw: string): SessionTranscript {
       if (last && last.entry.kind === "tools" && last.roles[last.roles.length - 1] !== "assistant-text") {
         (last.entry.calls as RawCall[]).push(...parts.calls);
       } else {
-        kept.push({ entry: { kind: "tools", calls: [...parts.calls] }, roles: ["tools"] });
+        kept.push({ entry: { kind: "tools", calls: [...parts.calls], at }, roles: ["tools"] });
       }
     }
   }
@@ -180,81 +255,22 @@ export function parseSessionText(raw: string): SessionTranscript {
     item.entry.kind === "tools"
       ? {
           kind: "tools",
+          at: item.entry.at,
           calls: (item.entry.calls as RawCall[]).map((call) => ({
             name: call.name,
             args: call.args,
+            summary: call.summary,
             result: results.get(call.id) ?? "（没有结果）",
           })),
         }
       : item.entry,
   );
-  return { entries, messages, toolCalls, dropped };
-}
-
-/** 工具调用的抬头：`read ×3、bash ×2`（同名的合成一个计数，别写三遍 read） */
-function toolSummary(calls: readonly SessionToolCall[]): string {
-  const counts = new Map<string, number>();
-  for (const call of calls) counts.set(call.name, (counts.get(call.name) ?? 0) + 1);
-  return [...counts.entries()].map(([name, count]) => `${name} ×${count}`).join("、");
-}
-
-/** 一个工具调用块：名字 + 参数摘要 + 结果前 200 字（全转义，original 里可能带尖括号） */
-function toolBlock(call: SessionToolCall): string {
-  return `<div class="tool">
-<p class="tool-name">${escapeHtml(call.name)}</p>
-<pre class="tool-args">${escapeHtml(call.args.length > 0 ? call.args : "（无参数）")}</pre>
-<pre class="tool-result">${escapeHtml(call.result)}</pre>
-</div>`;
-}
-
-/**
- * 一组工具调用：`<details>` **默认收起**（不加 `open`）——
- * 一段会话动辄几百次调用，默认展开等于把对话正文顶到十屏之外。
- */
-function toolGroup(calls: readonly SessionToolCall[]): string {
-  return `<details class="tools"><summary>工具调用：${escapeHtml(toolSummary(calls))}（点击展开）</summary>
-${calls.map(toolBlock).join("\n")}
-</details>`;
-}
-
-/** 一条对话消息：user 给原文（2000 字上限），assistant 给纯文本（4000 字上限） */
-function messageBlock(entry: Extract<SessionEntry, { kind: "user" | "assistant" }>): string {
-  const label = entry.kind === "user" ? "用户" : "助手";
-  const max = entry.kind === "user" ? MAX_USER_TEXT : MAX_TEXT;
-  const body = clip(entry.text, max);
-  if (body.length === 0) return "";
-  return `<div class="msg ${entry.kind}">
-<p class="who">${label}</p>
-<pre>${escapeHtml(body)}</pre>
-</div>`;
-}
-
-export interface RenderSessionOptions {
-  /** 因「只渲染最后 200 条」丢掉的条数（>0 时在顶部说明一句） */
-  dropped?: number;
-}
-
-/** 会话正文：按真实顺序渲染，超出总输出上限就停下并指路原文件 */
-export function renderSessionBody(transcript: SessionTranscript, options: RenderSessionOptions = {}): string {
-  const parts: string[] = [];
-  let size = 0;
-  let stopped = false;
-  if (options.dropped !== undefined && options.dropped > 0) {
-    parts.push(`<p class="hint">只渲染最后 ${MAX_MESSAGES} 条消息，前面还有 ${options.dropped} 条未显示（看全文请用 rg/read 打开原文件）。</p>`);
-  }
-  for (const entry of transcript.entries) {
-    const html = entry.kind === "tools" ? toolGroup(entry.calls) : messageBlock(entry);
-    if (html.length === 0) continue;
-    if (size + html.length > MAX_OUTPUT) {
-      stopped = true;
-      break;
-    }
-    parts.push(html);
-    size += html.length;
-  }
-  if (stopped) {
-    parts.push(`<p class="hint">已达页面输出上限（${Math.round(MAX_OUTPUT / 1024)}KB），后面还有内容未渲染：继续看请用 rg/read 打开原文件。</p>`);
-  }
-  if (parts.length === 0) return '<p class="empty">这段会话里没有可渲染的对话（可能全是工具调用与系统提示）。</p>';
-  return parts.join("\n");
+  return {
+    entries,
+    messages,
+    toolCalls,
+    dropped,
+    firstAt: stamps.length === 0 ? null : Math.min(...stamps),
+    lastAt: stamps.length === 0 ? null : Math.max(...stamps),
+  };
 }

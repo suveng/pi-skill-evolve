@@ -148,14 +148,19 @@ test("readSessionSource：非法 sessionId 直接返回空，不扫盘", () => {
   assert.deepEqual([source.file, source.transcript], [null, null]);
 });
 
-test("renderSessionPage：顶部给完整 sessionId 与文件路径，底部给原文件统计，工具块默认收起", () => {
+test("renderSessionPage：顶部一行给返回入口 / 会话短 id / 原文件，概览与出口给统计，工具块默认收起", () => {
   const { home, file } = fakeHome();
   const evolutionDir = fakeEvolution("run-1", { sessionId: SESSION_ID, sessionFile: file, status: "rejected" });
   const source = readSessionSource({ evolutionDir, sessionId: SESSION_ID, home });
   const html = renderSessionPage(source, { state: emptyState() });
-  assert.match(html, new RegExp(`<code>${SESSION_ID}</code>`));
-  assert.match(html, /<code>.*2026-11-08T00-00-00-000Z_.*\.jsonl<\/code>/);
-  assert.match(html, /原文件 <code>.*\.jsonl<\/code>（3 条消息 \/ 1 次工具调用 \/ \d+B）/);
+  // 顶部一行：回来有路、会话只显示前 8 位（完整 id 在 title 里，9 条 run 的前缀全一样）
+  assert.match(html, /<a href="\/\?view=pending&amp;range=all">← 返回待处理<\/a>/);
+  assert.match(html, /<span class="ses-id">会话 <code>01a1b90f<\/code><\/span>/);
+  assert.match(html, /原文件 <code title="[^"]*2026-11-08T00-00-00-000Z_.*\.jsonl">/);
+  // 概览：消息 / 工具调用 / 大小（时间跨度只在这段会话有 timestamp 时才出现）
+  assert.match(html, /<p class="ov">消息 3 · 工具调用 1 · \d+B/);
+  // 出口：渲染了多少条、原文件在哪
+  assert.match(html, /已渲染全部 3 条消息（原文件 <code>.*\.jsonl<\/code>）/);
   assert.equal(/<details[^>]*\sopen/.test(html), false, "工具块默认收起");
   assert.match(html, /看一下这个文件/);
 });
@@ -184,8 +189,9 @@ test("HTTP 路由：GET /?view=session&sessionId= 接对了（HOME 指到临时�
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-type") ?? "", /text\/html/);
     const html = await response.text();
-    assert.match(html, /工具调用：read ×1（点击展开）/);
+    assert.match(html, /<details class="tools"><summary>▸ read ×1 · <span class="muted">/);
     assert.equal(/<details[^>]*\sopen/.test(html), false);
+    assert.match(html, /← 返回待处理/);
   } finally {
     await result.panel.close();
     if (original === undefined) delete process.env.HOME;

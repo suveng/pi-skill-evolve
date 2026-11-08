@@ -58,7 +58,10 @@ test("GET /：真监听 127.0.0.1，返回四个 tab 与队列里的待批条目
     assert.match(html, /待审批/);
     assert.match(html, /已处理/);
     assert.match(html, /复盘报告/);
-    assert.match(html, /\[待批\] run-web · demo/);
+    // 列表页重做后行内不再有「[待批] run-web · demo」：状态是徽章，runId 在操作列
+    assert.match(html, /<span class="badge blue"[^>]*>待审批<\/span>/);
+    assert.match(html, /<td class="skill"><code>demo<\/code><\/td>/);
+    assert.match(html, /<a class="rid" href="\/\?view=run&amp;runId=run-web"[^>]*>详情<\/a>/);
   } finally {
     await panel.close();
   }

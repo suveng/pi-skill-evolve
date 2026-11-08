@@ -1,27 +1,24 @@
 /**
- * 列表页的「会话」列：五个视图（待处理 / 待审批 / 已采纳 / 已处理 / 复盘报告）都必须带，
- * 且文案一致 —— 只显示 sessionId 前 8 位，完整 id 放 title，点进 `?view=session`。
+ * 列表页的「会话」标识：五个视图（待处理 / 待审批 / 已采纳 / 已处理 / 复盘报告）都必须能看出这条 run 属于哪段对话，
+ * 且文案一致 —— 显示 sessionId 前 8 位，完整 id 放 title，点进 `?view=session`。
  *
  * 为什么必须每页都有（用户 2026-11-08）：「面板展示的也应该是 pi sessionId 否则我都不知道怎么看对应会话」。
- * 同一个渲染函数 `sessionCell` 供五处复用，本文件就是把这条约定钉住：
- * 少一页就说明有人另写了一份行渲染。
+ * 重做列表页后会话不再是一列：同一会话的多条 run 归到组标题（`<details>` 的 summary）里，
+ * 单条会话的 run 把会话名写在状态格的小字里 —— 两处都由 render-rows.ts 产出，本文件把这条约定钉住。
  */
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AppliedItem } from "../lib/web/applied.ts";
 import type { ApprovalItem } from "../lib/web/approvals.ts";
-import type { QueueItem } from "../lib/queue.ts";
 import type { DoneItem, PendingItem, WebState } from "../lib/web/data.ts";
 import type { RunReport } from "../lib/web/reports.ts";
 import { renderPage } from "../lib/web/render.ts";
-import { pendingRows } from "../lib/web/render-rows.ts";
 import type { SessionRef } from "../lib/web/run-session.ts";
 
 const NOW = new Date(2026, 10, 8, 12).getTime();
 const SESSION_ID = "01a1b90f-08c3-722c-871d-d024b083770a";
 const SESSION: SessionRef = { sessionId: SESSION_ID, sessionFile: `/tmp/${SESSION_ID}.jsonl` };
 const NO_SESSION: SessionRef = { sessionId: null, sessionFile: null };
-const CTX = { csrf: "c", writable: true, view: "pending" as const };
 
 function state(parts: Partial<WebState> = {}): WebState {
   return {
@@ -89,53 +86,54 @@ function reportItem(session: SessionRef): RunReport {
 
 /** 五个视图各塞一条带会话的行，返回整页 HTML */
 function pageWithSession(): Record<string, string> {
-  const base: Partial<WebState> = {
+  const current = state({
     pending: [pendingItem(SESSION)],
     approvals: [approvalItem(SESSION)],
     applied: [appliedItem(SESSION)],
     done: [doneItem(SESSION)],
     reports: [reportItem(SESSION)],
-  };
-  const current = state(base);
+  });
   return {
-    pending: renderPage(current, "pending"),
-    approvals: renderPage(current, "approvals"),
-    applied: renderPage(current, "applied"),
-    done: renderPage(current, "done"),
-    reports: renderPage(current, "reports"),
+    pending: renderPage(current, "pending", { now: NOW }),
+    approvals: renderPage(current, "approvals", { now: NOW }),
+    applied: renderPage(current, "applied", { now: NOW }),
+    done: renderPage(current, "done", { now: NOW }),
+    reports: renderPage(current, "reports", { now: NOW }),
   };
 }
 
-test("五个视图都有会话列：链接指向 ?view=session，文案是 sessionId 前 8 位，title 是完整 id", () => {
+test("五个视图都能看到会话：链接指向 ?view=session，文案是 sessionId 前 8 位，title 是完整 id", () => {
   const pages = pageWithSession();
+  const href = `/?view=session&amp;sessionId=${SESSION_ID}`;
   for (const [view, html] of Object.entries(pages)) {
-    const href = `/?view=session&amp;sessionId=${SESSION_ID}`;
     assert.equal(html.includes(href), true, `${view} 页缺会话链接`);
-    assert.match(html, /会话 01a1b90f/, `${view} 页会话列要显示前 8 位`);
+    assert.match(html, /会话 01a1b90f/, `${view} 页要显示会话前 8 位`);
     assert.equal(html.includes(`title="${SESSION_ID}"`), true, `${view} 页 title 要放完整 sessionId`);
   }
 });
 
-test("待处理行：会话列跟在 runId 后面，同一行里两者都在", () => {
-  const html = pendingRows([pendingItem(SESSION)], CTX);
-  const runIdIndex = html.indexOf("run-p-1794133942");
-  const sessIndex = html.indexOf('class="sess"');
-  assert.equal(runIdIndex >= 0 && sessIndex > runIdIndex, true, "会话列应在 runId 之后");
-  assert.match(html, / · <a class="sess"/, "会话列与行头之间用 · 分隔");
-});
-
-test("待审批行：summary 里同样带会话列（它是自己拼的 details，最容易漏）", () => {
-  const html = renderPage(state({ approvals: [approvalItem(SESSION)] }), "approvals");
-  assert.match(html, /<summary class="head">[^<]*<a class="sess" href="\/\?view=session&amp;sessionId=/);
+test("单条会话的 run 不进组：会话名写在状态格的小字里，runId 只出现在操作列", () => {
+  const html = renderPage(state({ pending: [pendingItem(SESSION)] }), "pending", { now: NOW });
+  assert.match(html, /<span class="sk-sess"><a class="sess"/, "会话名应在状态格的小字里");
+  assert.equal(html.includes('<details class="grp"'), false, "只有一条 run 时不该出现会话分组");
+  // runId 不再是主标识：只在操作列，显示末 8 位，title 放完整值
+  assert.match(html, /<td class="ops">.*title="run-p-1794133942"/);
 });
 
 test("没有 sessionId 的老 run：写「会话 —」占位，不造空链接、不报错", () => {
-  const html = renderPage(state({ pending: [pendingItem(NO_SESSION)], done: [doneItem(NO_SESSION)] }), "pending");
-  assert.match(html, /<span class="hint">会话 —<\/span>/);
+  const html = renderPage(state({ pending: [pendingItem(NO_SESSION)], done: [doneItem(NO_SESSION)] }), "pending", {
+    now: NOW,
+  });
+  assert.match(html, /<span class="sk-sess">会话 —<\/span>/);
   assert.equal(html.includes("view=session"), false, "缺 id 时不许出现会话链接");
 });
 
 test("会话链接带 file 参数：页面可直接打开声明过的会话文件，不必再反查", () => {
-  const html = pendingRows([pendingItem(SESSION)], CTX);
+  const html = renderPage(state({ pending: [pendingItem(SESSION)] }), "pending", { now: NOW });
   assert.match(html, new RegExp(`file=%2Ftmp%2F${SESSION_ID}\\.jsonl`));
+});
+
+test("同一会话的多条 run 归到组标题：会话名出现在 details 的 summary 里", () => {
+  const html = renderPage(state({ pending: [pendingItem(SESSION), pendingItem(SESSION)] }), "pending", { now: NOW });
+  assert.match(html, /<details class="grp" open>\n<summary><a class="sess" href="\/\?view=session&amp;sessionId=/);
 });

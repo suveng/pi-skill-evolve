@@ -1,26 +1,34 @@
 /**
- * 会话详情页（`?view=session&sessionId=...`）的渲染：概要 + 对话正文 + 原文件指路。
+ * 会话详情页（`?view=session&sessionId=...`）的渲染：顶部一行 + 概览 + 目录 + 消息流 + 出口。
  *
- * 页面只有三段：顶部概要（完整 sessionId / 文件路径 / 统计）、中间正文（由 session-view 纯函数产出）、
- * 底部一行「原文件 路径（N 条消息 / M 次工具调用 / 大小 K）」——
- * 面板解析不了的情况（超大文件、非 JSONL）必须能一键回到原文件，不然这一页就成了死胡同。
+ * 这一页的四件东西（用户 2026-11-08 现场反馈）：
+ * 1. **顶部一行**：`← 返回待处理` / `会话 01a1b90f` / 原文件路径 / `跳到最新 ↓` —— 原来没有返回入口，进来就出不去；
+ * 2. **左侧粘性目录**（`>=1200px`）：会话动辄几千行，一路往下滚太累；窄屏改用顶部折叠目录兜底；
+ * 3. **只看对话**（`?only=user`）：只在服务端过滤，工具调用压成一行（不引 JS）；
+ * 4. **底部出口**：说明渲染了多少条、还剩多少没显示、原文件在哪 —— 面板解析不了的，一键回到原文件。
  *
  * 找不到会话文件不报错：换机器 / 清理过 sessions 是常态，说清「会话文件已不在本机」比 500 有用。
  */
 import type { WebState } from "./data.ts";
+import { renderToc, renderTranscript } from "./session-render.ts";
 import type { SessionSource } from "./session-file.ts";
-import { renderSessionBody } from "./session-view.ts";
+import { MAX_MESSAGES } from "./session-view.ts";
 import { shellPage } from "./shell.ts";
-import { escapeHtml } from "./text.ts";
+import { escapeHtml, formatSpan } from "./text.ts";
 
-/** 概要的一行：标签 + 值（值必须已转义或本身就是标签串） */
-function kv(label: string, value: string): string {
-  return `<div class="kv-row"><span class="k">${label}</span><span class="v">${value}</span></div>`;
+/** 大小：字节 / KB / MB 三档，MB 给两位小数（5MB 级会话差 0.5MB reader 也看得出） */
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)}MB`;
 }
 
-/** 大小：小于 1KB 说字节，其余按 KB 取整（MB 级数字太长，看个量级就够） */
-function formatSize(bytes: number): string {
-  return bytes < 1024 ? `${bytes}B` : `${Math.round(bytes / 1024)}KB`;
+/** 本页自己的地址：`sessionId` + 可选 `file` + 可选 `only=user`（全部走编码后的枚举值） */
+function sessionUrl(sessionId: string, file: string | null, onlyUser: boolean): string {
+  const params = new URLSearchParams({ view: "session", sessionId });
+  if (file !== null) params.set("file", file);
+  if (onlyUser) params.set("only", "user");
+  return `/?${params.toString()}`;
 }
 
 /** 缺文件时的正文：给三句人话，说明为什么没有、去哪里看 */
@@ -30,38 +38,101 @@ function missingBody(sessionId: string): string {
 可能是换了机器、或 sessions 目录被清理过 —— 这一段对话的原文已经取不到了。</p>`;
 }
 
-/** 正文：有文件就渲染对话，没文件就给缺文件说明 */
-function bodyOf(source: SessionSource): string {
-  if (source.file === null || source.transcript === null) return missingBody(source.sessionId);
-  return renderSessionBody(source.transcript, { dropped: source.transcript.dropped });
+/** 顶部一行：返回入口 + 会话标识 + 原文件 + 跳到最新（长路径自己换行，不挤掉别的元素） */
+function topRow(source: SessionSource, lastId: string | null): string {
+  const id = escapeHtml(source.sessionId.slice(0, 8));
+  const file =
+    source.file === null
+      ? `<span class="off">会话文件已不在本机</span>`
+      : `<code title="${escapeHtml(source.file)}">${escapeHtml(source.file)}</code>`;
+  const toEnd = lastId === null ? "" : `<a class="to-end" href="#${lastId}">跳到最新 ↓</a>`;
+  return `<div class="ses-top">
+<a href="/?view=pending&amp;range=all">← 返回待处理</a>
+<span class="ses-id">会话 <code>${id}</code></span>
+<span class="ses-file">原文件 ${file}</span>
+${toEnd}
+</div>`;
+}
+
+/** 概览卡片：消息数 / 工具调用 / 大小 / 时间跨度 + 「只看对话」切换 */
+function overview(
+  source: SessionSource,
+  toggle: string,
+  onlyUser: boolean,
+): string {
+  const transcript = source.transcript;
+  if (transcript === null) return "";
+  const span = formatSpan(transcript.firstAt, transcript.lastAt);
+  const parts = [
+    `消息 ${transcript.messages}`,
+    `工具调用 ${transcript.toolCalls}`,
+    formatSize(source.sizeBytes),
+  ];
+  if (span.length > 0) parts.push(span);
+  return `<p class="ov">${parts.join(" · ")} <span class="ov-link">${toggle}${onlyUser ? "（当前只看对话）" : ""}</span></p>`;
 }
 
 /**
- * 页脚那一行是这一页的「出口」：绝对路径可以直接粘到终端里 `rg` / `read`，
- * 统计数字则用来说明「页面里看到的是全面的还是截断的」。
+ * 正文骨架：左侧粘性目录（宽屏）+ 消息流；窄屏把同一份目录换成顶部折叠块。
+ * 目录与消息流共用 `renderTranscript` 的产出，锚点 id 与 href 一一对应。
  */
-function footerOf(source: SessionSource): string {
-  if (source.file === null || source.transcript === null) return `原文件：<span class="off">会话文件已不在本机</span>`;
-  const { messages, toolCalls } = source.transcript;
-  return `原文件 <code>${escapeHtml(source.file)}</code>（${messages} 条消息 / ${toolCalls} 次工具调用 / ${formatSize(source.sizeBytes)}）`;
+function streamOf(source: SessionSource, onlyUser: boolean): { html: string; lastId: string | null } {
+  const transcript = source.transcript;
+  if (transcript === null) return { html: missingBody(source.sessionId), lastId: null };
+  const view = renderTranscript(transcript, {
+    dropped: transcript.dropped,
+    onlyUser,
+    expandHref: sessionUrl(source.sessionId, source.file, false),
+  });
+  const toc = renderToc(view.toc);
+  const lastId = view.shown === 0 ? null : `m-${view.shown}`;
+  return {
+    html: `<div class="ses-wrap">
+<aside class="toc">${toc}</aside>
+<div class="ses-body">
+<details class="toc-fold"><summary>目录（${view.toc.length} 条用户消息）</summary>
+<div class="toc-list">${toc}</div>
+</details>
+${view.body}
+${lastId === null ? "" : `<a class="to-top" href="#top">↑ 回到顶部</a>`}
+</div>
+</div>`,
+    lastId,
+  };
 }
 
-export function renderSessionPage(source: SessionSource, options: { state: WebState }): string {
-  const href = source.file === null ? null : source.file;
-  const body = `<section>
-<h2>会话</h2>
-<div class="kv">
-${kv("sessionId", `<code>${escapeHtml(source.sessionId)}</code>`)}
-${kv("会话文件", href === null ? `<span class="off">会话文件已不在本机</span>` : `<code>${escapeHtml(href)}</code>`)}
-${kv("工具调用", "折叠块默认收起，点标题展开（参数摘要 ≤400 字、结果前 200 字）")}
-</div>
-</section>
-${bodyOf(source)}`;
+/** 底部出口：渲染了多少、还剩多少、原文件在哪（面板解析不了时全靠这一行） */
+function exitLine(source: SessionSource): string {
+  if (source.file === null || source.transcript === null) {
+    return `原文件：<span class="off">会话文件已不在本机</span>`;
+  }
+  const { dropped, messages } = source.transcript;
+  const file = `<code>${escapeHtml(source.file)}</code>`;
+  if (dropped > 0) {
+    return `已渲染最后 ${MAX_MESSAGES} 条 · 前 ${dropped} 条未显示（原文件 ${file}，共 ${messages} 条消息）`;
+  }
+  return `已渲染全部 ${messages} 条消息（原文件 ${file}）`;
+}
+
+export function renderSessionPage(source: SessionSource, options: { state: WebState; onlyUser?: boolean }): string {
+  const onlyUser = options.onlyUser === true;
+  const transcript = source.transcript;
+  const toggle =
+    transcript === null
+      ? ""
+      : onlyUser
+        ? `<a href="${escapeHtml(sessionUrl(source.sessionId, source.file, false))}">看全部</a>`
+        : `<a href="${escapeHtml(sessionUrl(source.sessionId, source.file, true))}">只看对话</a>`;
+  // 先渲染消息流：「跳到最新」要指向**实际渲染出的最后一块**，而不是 entries 条数（工具块与空正文都不占块号）
+  const stream = streamOf(source, onlyUser);
+  const body = `${topRow(source, stream.lastId)}
+${overview(source, toggle, onlyUser)}
+${stream.html}`;
   return shellPage({
     state: options.state,
     title: `会话 ${source.sessionId.slice(0, 8)}`,
     active: null,
     body,
-    foot: footerOf(source),
+    foot: exitLine(source),
   });
 }

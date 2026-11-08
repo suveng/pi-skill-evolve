@@ -37,17 +37,19 @@ test("高亮只落在当前 tab 上；详情页（active=null）一个都不高�
   assert.equal(tabs(null).includes('class="active"'), false);
 });
 
-test("状态栏：「已采纳 N」自己就是一个链接，点数字落到已采纳页", () => {
+test("状态栏：四个数字，待批 / 已采纳各自是链接（回滚率不进这一行，它在周报里）", () => {
   const html = statusBar(state());
-  assert.match(html, /复盘中 2 · 卡死 1 · 待批 <a href="\/\?view=approvals">3<\/a> · 已采纳 <a href="\/\?view=applied">4<\/a> · 回滚率 26%/);
+  assert.match(html, /复盘中 2 · 卡死 1 · 待批 <a href="\/\?view=approvals">3<\/a> · 已采纳 <a href="\/\?view=applied">4<\/a>/);
+  assert.equal(html.includes("回滚率"), false, "回滚率是周报口径，不该混进「现在要处理什么」这一行");
 });
 
 test("骨架：标题、状态栏、导航、正文、页脚各就各位", () => {
   const html = shellPage({ state: state(), title: "已采纳", active: "applied", body: "<main>正文</main>" });
   assert.match(html, /<title>技能进化 · 已采纳<\/title>/);
-  assert.match(html, /<p class="bar">复盘中 2/);
-  assert.match(html, /<nav>\n<a href="\/\?view=pending">待处理<\/a>/);
-  assert.match(html, /<\/nav>\n<main>正文<\/main>\n<footer>/);
+  assert.match(html, /<p class="sum">复盘中 2/);
+  // tab 上带计数徽章（数量就是列表里的条数，不另算一份）
+  assert.match(html, /<nav class="tabs">\n<a href="\/\?view=pending">待处理<span class="cnt">0<\/span><\/a>/);
+  assert.equal(html.includes("</nav>\n</header>\n<main>正文</main>\n<footer>"), true, "nav 与正文之间只有粘性区结束标签");
 });
 
 test("?view= 白名单：三个新视图认，乱值一律回落待处理", () => {

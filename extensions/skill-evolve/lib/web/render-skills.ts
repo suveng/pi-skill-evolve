@@ -73,7 +73,6 @@ export interface SkillsPageControls {
   csrf?: string;
   canWrite?: boolean;
   controls?: WebControls | null;
-  now?: number;
 }
 
 export function renderSkillsPage(view: SkillsView, state: WebState, options: SkillsPageControls = {}): string {

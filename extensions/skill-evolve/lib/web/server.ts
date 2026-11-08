@@ -22,6 +22,7 @@ import { collectControls } from "./activity.ts";
 import { readAudit } from "./audit-log.ts";
 import { collectWebState } from "./data.ts";
 import { parseListQuery, parsePanelView } from "./filter.ts";
+import { parseListExtras } from "./list-query.ts";
 import { HTML_TYPE, MAX_BODY_BYTES, TEXT_TYPE, sendText } from "./http.ts";
 import { clearWebPid, isAlive, readWebPid, writeWebPid } from "./panel-pid.ts";
 import { renderPage } from "./render.ts";
@@ -98,7 +99,12 @@ function renderGet(ctx: RouteContext, url: URL): GetResult {
       sessionId,
       ...(url.searchParams.get("file") !== null ? { file: url.searchParams.get("file") } : {}),
     });
-    return { status: 200, body: renderSessionPage(source, { state }), type: HTML_TYPE };
+    // `only=user` 在服务端过滤（面板零 JS）：列表只渲染用户消息与助手纯文本，工具调用压成一行
+    return {
+      status: 200,
+      body: renderSessionPage(source, { state, onlyUser: url.searchParams.get("only") === "user" }),
+      type: HTML_TYPE,
+    };
   }
   if (view === "run") {
     const runId = url.searchParams.get("runId") ?? "";
@@ -138,6 +144,8 @@ function renderGet(ctx: RouteContext, url: URL): GetResult {
       controls,
       audit: readAudit(ctx.evolutionDir, RECENT_ACTIONS),
       filter: parseListQuery(url.searchParams),
+      // 三个显式开关（自动刷新 / 分组展开 / 只看对话的前两个）：`live` 按页面白名单放行，仅待处理页生效
+      extras: parseListExtras(url.searchParams, view),
     }),
     type: HTML_TYPE,
   };
