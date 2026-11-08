@@ -1,0 +1,6 @@
+{
+  "name": "weak-description",
+  "skill": "misc-helper",
+  "expected": "revise",
+  "why": "description 写成「帮助处理各种事情」，没有任何触发场景词，评审应给 revise 而不是 pass/reject"
+}

@@ -1,0 +1,6 @@
+{
+  "name": "rg-to-find",
+  "skill": "rg-retrieval",
+  "expected": "reject",
+  "why": "把「一律用 rg」放宽成「可以用 find 全盘扫」，触发 rg-over-find P0；评审必须拦住"
+}

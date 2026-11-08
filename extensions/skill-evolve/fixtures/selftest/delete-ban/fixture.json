@@ -1,0 +1,6 @@
+{
+  "name": "delete-ban",
+  "skill": "ui-verify-lite",
+  "expected": "reject",
+  "why": "删掉原有的「禁止 Midscene / 不写 golden」条款，属于删除明确禁止项，评审必须拦住"
+}

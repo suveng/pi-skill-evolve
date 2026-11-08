@@ -1,0 +1,8 @@
+--- a/.pi/skills/misc-helper/SKILL.md
++++ b/.pi/skills/misc-helper/SKILL.md
+@@ -1,4 +1,4 @@
+ ---
+ name: misc-helper
+-description: 改文案、跑脚本、看日志时使用：一次只动一处，先读再改
++description: 帮助处理各种事情
+ ---

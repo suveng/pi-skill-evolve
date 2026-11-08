@@ -1,0 +1,8 @@
+--- a/.pi/skills/ui-verify-lite/SKILL.md
++++ b/.pi/skills/ui-verify-lite/SKILL.md
+@@ -8,5 +8,4 @@
+ 1. 用 playwright 录屏。
+ 2. 抽帧检查首屏与关键操作。
+ 3. 生成 GIF 前先按 lead 裁掉空白帧。
+-- 禁止 Midscene、不写 golden 截图。
+ 
