@@ -102,12 +102,13 @@ function approvalForm(action: "approve" | "reject", item: ApprovalItem, csrf: st
 </form>`;
 }
 
-/** 待处理：四种 kind 各一个徽章；「待入队」是灰的（它在排队，不需要人动手） */
+/** 待处理：五种 kind 各一个徽章；「待评审 / 待入队」是灰的（它们在排队，不需要人动手） */
 export function pendingRows(items: readonly PendingItem[], ctx: RowContext): ListRow[] {
   const badge: Record<PendingItem["kind"], { text: string; tone: BadgeTone }> = {
     running: { text: "复盘中", tone: "yellow" },
     approval: { text: "待审批", tone: "blue" },
     stale: { text: "卡死", tone: "red" },
+    "to-review": { text: "待评审", tone: "gray" },
     reviewed: { text: "待入队", tone: "gray" },
   };
   return items.map((item) => ({

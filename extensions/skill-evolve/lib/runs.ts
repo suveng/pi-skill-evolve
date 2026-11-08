@@ -216,9 +216,12 @@ export function listRuns(evolutionDir: string, limit = 10): RunSummary[] {
       const proposal = raw.proposal ?? readProposalSummary(runDir);
       // 同理：结论写盘了但宿主进程已退出、没人把状态推到 analyzed —— 读的时候补上。
       // 不补的话，一个已经成功的复盘会被卡死判定误抦成「复盘失败」（面板最忌讳的事）。
+      // 但**写了 run-error.json 的 run 不许补**：那是判定过卡死并留了证据的失败案件，
+      // 补成 analyzed 会让它从「卡死」里消失、还挂着「待入队」的灰牌（2026-11-08 实测 7 条被误标）。
       const hasFindings = fs.existsSync(path.join(runDir, "01-findings.json"));
+      const hasErrorReport = fs.existsSync(path.join(runDir, "run-error.json"));
       const status =
-        hasFindings && (raw.status === "dispatched" || raw.status === "stale")
+        hasFindings && !hasErrorReport && (raw.status === "dispatched" || raw.status === "stale")
           ? "analyzed"
           : (raw.status ?? "unknown");
       runs.push({

@@ -27,8 +27,8 @@ function defaultAlive(pid: number): boolean {
   }
 }
 
-/** 待处理四来源：正在跑 / 已判卡死 / 队列待批 / 评审通过但还没入队 */
-export type PendingKind = "running" | "approval" | "stale" | "reviewed";
+/** 待处理五来源：正在跑 / 已判卡死 / 队列待批 / 已出结论等评审 / 评审通过等入队 */
+export type PendingKind = "running" | "approval" | "stale" | "to-review" | "reviewed";
 
 export interface PendingItem {
   runId: string;
@@ -89,8 +89,8 @@ function runningItem(
   };
 }
 
-/** 四类条目的展示优先级：正在跑最上头，然后卡死、待批、待入队 */
-const PENDING_RANK: Record<PendingKind, number> = { running: 0, stale: 1, approval: 2, reviewed: 3 };
+/** 五类条目的展示优先级：正在跑最上头，然后卡死、待批、待评审、待入队 */
+const PENDING_RANK: Record<PendingKind, number> = { running: 0, stale: 1, approval: 2, "to-review": 3, reviewed: 4 };
 
 export function buildPending(
   items: readonly QueueItem[],
@@ -159,7 +159,7 @@ export function buildPending(
     if (run.status !== "analyzed" && run.status !== "proposed") continue;
     pending.push({
       runId: run.runId,
-      kind: "reviewed",
+      kind: "to-review",
       session: sessionOfRun(run),
       skill: run.proposal?.skill ?? "",
       at: run.dispatchedAt,
