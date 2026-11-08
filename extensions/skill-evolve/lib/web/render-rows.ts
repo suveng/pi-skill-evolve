@@ -12,6 +12,8 @@
  * 「看日志」是只读 GET，只读面板也照常给（它不写任何东西）。
  */
 import type { AppliedItem, ApprovalItem, DoneItem, PendingItem, RunReport, WebView } from "./data.ts";
+import type { SessionRef } from "./run-session.ts";
+import { sessionHref } from "./run-session.ts";
 import { escapeHtml, formatStamp, shortRunId, withId } from "./text.ts";
 
 /** 行内操作需要的上下文：csrf 与 canWrite 决定按钮渲不渲染，view 决定动作做完回哪一页 */
@@ -36,10 +38,36 @@ function linkRunId(text: string, runId: string): string {
   return `${text.slice(0, index)}${anchor}${text.slice(index + short.length)}`;
 }
 
+/**
+ * 「会话」列：pi sessionId 前 8 位做成链接，点进去看那段对话的原文（`?view=session`）。
+ *
+ * 为什么必须有（用户 2026-11-08：「面板展示的也应该是 pi sessionId 否则我都不知道怎么看对应会话」）：
+ * 行上原来只有 runId（会话哈希8 + 时间戳），对着 TUI 里的 sessionId 对不上号，
+ * 想回去看那段对话只能自己到 `~/.pi/agent/sessions/` 里翻。
+ * 只显示前 8 位是为了不把一行撑开；完整 id 放进 `title`（悬停可见），链接里带完整 id。
+ */
+function sessionCell(session: SessionRef | undefined): string {
+  const href = session === undefined ? null : sessionHref(session);
+  if (href === null || session === undefined || session.sessionId === null) {
+    // 老 run.json 可能没有 sessionId：写「—」而不是凭空造一个空链接（点进去只会 404）
+    return ' · <span class="hint">会话 —</span>';
+  }
+  return ` · <a class="sess" href="${escapeHtml(href)}" title="${escapeHtml(session.sessionId)}">会话 ${escapeHtml(
+    session.sessionId.slice(0, 8),
+  )}</a>`;
+}
+
+/** 行尾附加信息：runId 变链接、会话列（都可缺省，缺了就不渲染） */
+interface RowMeta {
+  runId?: string;
+  session?: SessionRef;
+}
+
 /** 一行；detail 为空就不给 `<details>`（空折叠框比没有更烦）；给了 runId 就把抬头里的 runId 变链接 */
-function row(head: string, detail: string, acts = "", runId?: string): string {
+function row(head: string, detail: string, acts = "", meta: RowMeta = {}): string {
   const text = escapeHtml(head);
-  const rendered = runId === undefined ? text : linkRunId(text, runId);
+  const linked = meta.runId === undefined ? text : linkRunId(text, meta.runId);
+  const rendered = `${linked}${sessionCell(meta.session)}`;
   const inner =
     detail.length === 0
       ? `<span class="head">${rendered}</span>`
@@ -90,6 +118,7 @@ export function pendingRows(items: readonly PendingItem[], ctx: RowContext): str
         `[${badge[item.kind]}] ${shortRunId(item.runId)}${skill} · ${formatStamp(item.at)}`,
         withId(item.runId, item.detail),
         rowActs(item.runId, ctx, item.kind === "stale"),
+        { session: item.session },
       );
     })
     .join("\n");
@@ -104,7 +133,7 @@ export function doneRows(items: readonly DoneItem[]): string {
         `[${item.status}] ${shortRunId(item.runId)}${skill}${level} · ${formatStamp(item.at)}`,
         withId(item.runId, item.detail),
         archiveActs(item.runId),
-        item.runId,
+        { runId: item.runId, session: item.session },
       );
     })
     .join("\n");
@@ -144,7 +173,7 @@ export function appliedRows(items: readonly AppliedItem[]): string {
         `[applied] ${shortRunId(item.runId)}${skill}${delta} · ${formatStamp(item.appliedAt)} · ${gateText(item)}`,
         appliedDetail(item),
         archiveActs(item.runId),
-        item.runId,
+        { runId: item.runId, session: item.session },
       );
     })
     .join("\n");
@@ -186,7 +215,9 @@ function actionForm(action: "approve" | "reject", item: ApprovalItem, csrf: stri
 export function approvalRows(items: readonly ApprovalItem[], ctx: RowContext): string {
   return items
     .map((item) => {
-      const detail = `<details><summary class="head">${escapeHtml(approvalHead(item))}</summary><pre>${escapeHtml(
+      const detail = `<details><summary class="head">${escapeHtml(approvalHead(item))}${sessionCell(
+        item.session,
+      )}</summary><pre>${escapeHtml(
         withId(item.runId, approvalDetail(item)),
       )}</pre></details>`;
       if (!ctx.writable) return `<li class="row">${detail}</li>`;
@@ -245,7 +276,7 @@ export function reportRows(reports: readonly RunReport[], ctx: RowContext): stri
         `[${label}] ${shortRunId(report.runId)}${findings}${proposal}${verdict} · ${formatStamp(report.startedAt)}`,
         withId(report.runId, reportDetail(report)),
         rowActs(report.runId, ctx, report.status === "stale"),
-        report.runId,
+        { runId: report.runId, session: report.session },
       );
     })
     .join("\n");

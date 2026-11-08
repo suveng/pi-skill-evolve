@@ -102,6 +102,23 @@ h2 { margin: 20px 0 6px; font-size: 15px; font-weight: 600; color: #cfe3ff }
 .diff .meta { color: #6f7a8c }
 /* 改后全文：长文件限高内部滚动，别把后面的评审/五闸顶到屏幕外 */
 .candidate { max-height: 480px; overflow: auto }
+/* 会话详情页：工具调用块默认收起（details 不带 open），抬头是一行可点的摘要 */
+details > summary { cursor: pointer }
+details.tools { margin: 10px 0; padding: 8px 10px; background: #171b24; border-left: 2px solid #2b3342; border-radius: 4px }
+details.tools > summary { color: #cfe3ff }
+.tool { margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid #232733 }
+.tool-name { margin: 0; color: #7cc4ff }
+.tool-args, .tool-result { margin: 4px 0 0; padding: 8px; background: #141821;
+  border-left: 1px solid #2b3342; white-space: pre-wrap; word-break: break-word }
+.tool-result { color: #8d99ae }
+/* 对话消息：谁说的一句话决定左边框颜色，长文本靠 pre 自己的换行 */
+.msg { margin: 14px 0; padding-left: 10px; border-left: 2px solid #2b3342 }
+.msg.user { border-left-color: #7cc4ff }
+.msg .who { margin: 0; color: #8d99ae; font-size: 12px }
+.msg pre { margin: 4px 0 0; background: none; padding: 0; border: 0 }
+/* 列表页「会话」列：只显示 sessionId 前 8 位，完整值在 title 里 */
+a.sess { color: #8d99ae; text-decoration: none; border-bottom: 1px dashed #3f4654 }
+a.sess:hover { color: #7cc4ff; border-bottom-color: #7cc4ff }
 footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #232733; color: #6f7a8c }
 footer a { color: #7cc4ff }
 `.trim();

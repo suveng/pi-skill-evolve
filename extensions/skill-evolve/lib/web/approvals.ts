@@ -11,9 +11,12 @@ import * as path from "node:path";
 import type { QueueItem } from "../queue.ts";
 import { readProposalSummary } from "../proposal.ts";
 import { asNumber, asText, readJson } from "./json-read.ts";
+import { readRunSession, type SessionRef } from "./run-session.ts";
 
 export interface ApprovalItem {
   runId: string;
+  /** 这条 run 是哪个会话跑出来的：行上「会话」列要用（缺 = NO_SESSION） */
+  session: SessionRef;
   skill: string;
   level: string;
   /** 相对仓库根的落盘目标（队列里就存着，不重算） */
@@ -46,6 +49,7 @@ export function buildApprovals(evolutionDir: string, items: readonly QueueItem[]
       const summary = readProposalSummary(runDir);
       return {
         runId: item.runId,
+        session: readRunSession(runDir),
         skill: item.skill,
         level: item.level,
         targets: item.targets,

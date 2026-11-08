@@ -218,6 +218,7 @@ export function createEvolution(deps: EvolutionDeps): Evolution {
       })
       .then((outcome) => {
         if (outcome.status === "skipped") log(`[skill-evolve] 本轮未派生：${outcome.why}`);
+        // merged：并入在途 run 的日志由派发器打（那里能看到轮数），这里不重复
         else if (outcome.status === "dispatched") observer.noteDispatched(outcome.run.runId);
       })
       .catch((error: unknown) => recordHandlerError("dispatch", error));

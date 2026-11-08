@@ -21,6 +21,8 @@ export type TelemetryKind =
   | "missed"
   | "pending"
   | "dispatched"
+  /** 同会话聚合：{kind:"merged", runId, sessionId, rounds} —— 这一轮并进了已有的在途 run */
+  | "merged"
   | "skipped"
   | "superseded"
   | "handler_error"

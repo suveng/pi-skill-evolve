@@ -26,8 +26,10 @@ import { HTML_TYPE, MAX_BODY_BYTES, TEXT_TYPE, sendText } from "./http.ts";
 import { clearWebPid, isAlive, readWebPid, writeWebPid } from "./panel-pid.ts";
 import { renderPage } from "./render.ts";
 import { renderRunPage } from "./render-run.ts";
+import { renderSessionPage } from "./render-session.ts";
 import { renderSkillPage, renderSkillsPage } from "./render-skills.ts";
 import { handleDiff, readRunDetail } from "./run-detail.ts";
+import { readSessionSource } from "./session-file.ts";
 import { parseDays, readSkillDetail, readSkills } from "./skills.ts";
 
 /** 默认端口：7788 是面板约定值（TUI 提示与文档里都写这个），改它得同时改文档 */
@@ -77,8 +79,9 @@ interface GetResult {
 /**
  * 读盘渲染：控制条、最近操作、筛选都在这里一次性读好传给渲染层（渲染层不碰磁盘）。
  *
- * 四类页面：`?view=run&runId=`（run 详情）/ `?view=skills`（技能管理）/ `?view=skill&name=`（技能详情）/ 五个列表页。
+ * 四类页面：`?view=run&runId=`（run 详情）/ `?view=session&sessionId=`（会话详情）/ `?view=skills`（技能管理）/ `?view=skill&name=`（技能详情）/ 五个列表页。
  * 详情页的 runId 不合法或目录不存在一律 404 —— 靠 resolveRunDir 的目录校验，不靠字符串过滤。
+ * 会话页不走 404：会话文件可能已不在本机，那种情况页面要说人话（见 render-session.ts）。
  */
 function renderGet(ctx: RouteContext, url: URL): GetResult {
   const err = url.searchParams.get("err");
@@ -88,6 +91,15 @@ function renderGet(ctx: RouteContext, url: URL): GetResult {
   const state = collectWebState({ evolutionDir: ctx.evolutionDir });
   const view = parsePanelView(url.searchParams.get("view"));
   const days = parseDays(url.searchParams.get("days"));
+  if (view === "session") {
+    const sessionId = url.searchParams.get("sessionId") ?? "";
+    const source = readSessionSource({
+      evolutionDir: ctx.evolutionDir,
+      sessionId,
+      ...(url.searchParams.get("file") !== null ? { file: url.searchParams.get("file") } : {}),
+    });
+    return { status: 200, body: renderSessionPage(source, { state }), type: HTML_TYPE };
+  }
   if (view === "run") {
     const runId = url.searchParams.get("runId") ?? "";
     const detail = readRunDetail(ctx.evolutionDir, runId);

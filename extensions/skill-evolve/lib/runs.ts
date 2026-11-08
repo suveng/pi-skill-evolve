@@ -37,6 +37,20 @@ export interface RunStage {
   ms: number;
 }
 
+/**
+ * 覆盖轮数：`rounds` 是这条 run 一共复盘了几轮，`merged` 是其中有多少轮属于
+ * 「同一会话已有在途复盘」被并进来的（见 lib/aggregate.ts）。
+ */
+export interface RunCoverage {
+  rounds: number;
+  /** 覆盖起点：第一次被挡下的时刻（缺省同 dispatchedAt） */
+  since: number;
+  /** 最近一次并进新轮次的时刻 */
+  lastAt?: number;
+  /** 其中有多少轮是并入在途 run 的（缺省 0） */
+  merged?: number;
+}
+
 export interface RunRecord {
   runId: string;
   status: RunStatus;
@@ -54,8 +68,8 @@ export interface RunRecord {
   supervisorPid?: number | null;
   cwd: string;
   skills: string[];
-  /** 去抖合并掉的轮次范围（缺省 = 只覆盖刚结束的 1 轮） */
-  coverage?: { rounds: number; since: number };
+  /** 去抖合并 / 同会话聚合记下的轮次范围（缺省 = 只覆盖刚结束的 1 轮） */
+  coverage?: RunCoverage;
   stages: RunStage[];
   artifacts: Record<string, string>;
   /** M3：复盘子进程产出提案后回写（{type, skill, status, added, removed, file}） */
@@ -79,6 +93,10 @@ export interface RunSummary {
   status: string;
   dispatchedAt: number | null;
   sessionId: string;
+  /** 会话原文的绝对路径：面板据此打开「会话详情」页（同会话聚合也要它） */
+  sessionFile: string | null;
+  /** 复盘的轮次覆盖（缺省 null = 只覆盖 1 轮，没被并过） */
+  coverage: RunCoverage | null;
   /** 子进程 pid：面板靠它判「还活着吗」（见 lib/stale.ts） */
   pid: number | null;
   /** 评审督导 pid：面板据此把阶段标成「评审中」 */
@@ -167,6 +185,19 @@ export async function updateRunStatus(
   return found;
 }
 
+/** run.json 里的 coverage：字段缺失或类型不对一律当 null（坏数据当空，不让它污染展示） */
+export function parseCoverage(value: unknown): RunCoverage | null {
+  if (typeof value !== "object" || value === null) return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.rounds !== "number" || typeof record.since !== "number") return null;
+  return {
+    rounds: record.rounds,
+    since: record.since,
+    ...(typeof record.lastAt === "number" ? { lastAt: record.lastAt } : {}),
+    ...(typeof record.merged === "number" ? { merged: record.merged } : {}),
+  };
+}
+
 /** 按派生时间倒序列出最近若干个 run（run.json 坏掉的目录直接跳过） */
 export function listRuns(evolutionDir: string, limit = 10): RunSummary[] {
   const dir = path.join(evolutionDir, "runs");
@@ -195,6 +226,8 @@ export function listRuns(evolutionDir: string, limit = 10): RunSummary[] {
         status,
         dispatchedAt: typeof raw.dispatchedAt === "number" ? raw.dispatchedAt : null,
         sessionId: raw.sessionId ?? "",
+        sessionFile: typeof raw.sessionFile === "string" ? raw.sessionFile : null,
+        coverage: parseCoverage(raw.coverage),
         pid: typeof raw.pid === "number" ? raw.pid : null,
         supervisorPid: typeof raw.supervisorPid === "number" ? raw.supervisorPid : null,
         ...(proposal ? { proposal } : {}),

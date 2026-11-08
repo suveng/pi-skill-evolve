@@ -7,6 +7,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { mergeRoundIntoRun } from "./aggregate.ts";
 import type { Attribution } from "./attribution.ts";
 import { acquireLockSync, releaseLockSync, writeOwnerSync } from "./lock.ts";
 import { buildPrompt, readPromptTemplateSync } from "./prompt.ts";
@@ -48,10 +49,32 @@ export interface ShutdownDeps {
   log: (msg: string) => void;
 }
 
-export type ShutdownResult = "dispatched" | "skipped" | "failed";
+/** `merged`：同一会话已有在途复盘，这次补发的轮次并进去了（不建 run、不起进程） */
+export type ShutdownResult = "dispatched" | "skipped" | "failed" | "merged";
 
 /** 同步补发一次：任何异常都在内部吞掉，绝不阻塞退出、绝不抛给调用方 */
 export function flushPendingSync(item: PendingRounds, deps: ShutdownDeps, now: number): ShutdownResult {
+  // 同会话聚合：已有在途复盘就把这几轮并进去（与异步派发同一判定，见 lib/aggregate.ts）
+  const merged = mergeRoundIntoRun({
+    evolutionDir: deps.evolutionDir,
+    sessionId: item.sessionId,
+    rounds: item.rounds,
+    now,
+    ...(deps.alive ? { isAlive: deps.alive } : {}),
+    log: deps.log,
+  });
+  if (merged) {
+    // 退出路径必须同步落盘：异步队列很可能来不及写，进程就没了
+    deps.telemetry.appendSync({
+      kind: "merged",
+      ts: now,
+      sessionId: item.sessionId,
+      runId: merged.runId,
+      rounds: merged.rounds,
+    });
+    return "merged";
+  }
+
   // 全局单飞：退出补发也不能叠进程（已有活的复盘 / 督导就放弃本次，不建目录不抢锁）
   const occupant = guardBusy({
     evolutionDir: deps.evolutionDir,

@@ -8,6 +8,7 @@ import { readVerify } from "../apply.ts";
 import type { RunSummary } from "../runs.ts";
 import { readRunError } from "../stale.ts";
 import { asNumber, asRecord, asText, readJson, reasonLabel } from "./json-read.ts";
+import { sessionFromRecord, type SessionRef } from "./run-session.ts";
 
 /** 单条报告里最多列几个技能：全量列会把 details 撑成第二份 findings */
 export const MAX_FINDING_ROWS = 5;
@@ -22,6 +23,8 @@ export interface RunReport {
   runId: string;
   status: string;
   trigger: string;
+  /** 这条 run 是哪个会话跑出来的：行上「会话」列要用（缺 = NO_SESSION） */
+  session: SessionRef;
   startedAt: number | null;
   findings: { total: number; rows: FindingRow[] };
   proposal: { type: string; skill: string; added: number; removed: number } | null;
@@ -84,10 +87,10 @@ function readVerifyGates(runDir: string): RunReport["verify"] {
   };
 }
 
-/** 触发者只在 run.json 里（listRuns 的摘要不带它）：单独读一次，坏记录当 unknown */
-function readTrigger(runDir: string): string {
+/** 触发者与会话只在 run.json 里（listRuns 的摘要不带 trigger）：一次读出两样，坏记录当 unknown / 空 */
+function readRunMeta(runDir: string): { trigger: string; session: SessionRef } {
   const raw = readJson<Record<string, unknown>>(path.join(runDir, "run.json"));
-  return asText(raw?.trigger, "unknown");
+  return { trigger: asText(raw?.trigger, "unknown"), session: sessionFromRecord(raw) };
 }
 
 /** runs/ 下的目录名（不看 run.json，坏掉的目录也要能被 reports 的真实判据「有没有 01-findings」筛） */
@@ -117,6 +120,7 @@ export function buildReports(evolutionDir: string, runs: readonly RunSummary[]):
   const summaries = new Map(runs.map((run) => [run.runId, run]));
   const reports: RunReport[] = [];
   for (const { runId, runDir } of runDirs(evolutionDir)) {
+    const meta = readRunMeta(runDir);
     const findings = readFindings(runDir);
     if (!findings) {
       // 失败也要有一行档案：每条 run 都能在报告里找到，不能因为没产出就从历史里消失
@@ -129,7 +133,8 @@ export function buildReports(evolutionDir: string, runs: readonly RunSummary[]):
       reports.push({
         runId,
         status: "stale",
-        trigger: readTrigger(runDir),
+        trigger: meta.trigger,
+        session: meta.session,
         startedAt: summary?.dispatchedAt ?? asNumber(raw?.dispatchedAt),
         findings: { total: 0, rows: [] },
         proposal: null,
@@ -147,7 +152,8 @@ export function buildReports(evolutionDir: string, runs: readonly RunSummary[]):
     reports.push({
       runId,
       status: summaries.get(runId)?.status ?? "unknown",
-      trigger: readTrigger(runDir),
+      trigger: meta.trigger,
+      session: meta.session,
       startedAt: summaries.get(runId)?.dispatchedAt ?? null,
       findings,
       proposal: proposal ? { type: proposal.type, skill: proposal.skill, added: proposal.added, removed: proposal.removed } : null,

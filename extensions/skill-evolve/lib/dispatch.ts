@@ -10,67 +10,23 @@
  */
 import { spawn } from "node:child_process";
 import * as path from "node:path";
-import { mergeAttributions, type Attribution } from "./attribution.ts";
-import type { EvolutionConfig } from "./config.ts";
+import { mergeRoundIntoRun } from "./aggregate.ts";
+import { mergeAttributions } from "./attribution.ts";
 import { acquireLock, releaseLock, writeOwnerSync } from "./lock.ts";
 import { buildPrompt, readPromptTemplateSync } from "./prompt.ts";
-import { writeRunRecord, type RunRecord } from "./runs.ts";
+import { writeRunRecord } from "./runs.ts";
 import { writeSessionIndex } from "./session-index.ts";
-import { CHILD_LOG, resolvePiBin, spawnDetached, uniqueRunId, sessionHashOf, type SpawnLike } from "./spawn-plan.ts";
+import { CHILD_LOG, resolvePiBin, spawnDetached, uniqueRunId, sessionHashOf } from "./spawn-plan.ts";
 import { mergePendingRounds } from "./pending.ts";
 import { watchRunChild } from "./run-watch.ts";
-import { spawnReviewSupervisor, type SupervisorSpawn } from "./review-spawn.ts";
+import { spawnReviewSupervisor } from "./review-spawn.ts";
 import { guardBusy } from "./single-flight.ts";
 import { drainPending } from "./drain-pending.ts";
 import type { PendingRounds } from "./shutdown-dispatch.ts";
-import type { MutationQueue, TelemetryWriter } from "./telemetry.ts";
+import type { DispatchDeps, DispatchInput, DispatchOptions, DispatchOutcome } from "./dispatch-types.ts";
 
-export interface DispatchInput {
-  sessionId: string;
-  skills: string[];
-  sessionFile?: string;
-  /** 已经机械归因过的技能（A~E）：写进 prompt，复盘 agent 不必重判 */
-  attributions?: Attribution[];
-}
-
-export interface DispatchDeps {
-  evolutionDir: string;
-  cwd: string;
-  config: EvolutionConfig;
-  telemetry: TelemetryWriter;
-  queue: MutationQueue;
-  promptTemplatePath: string;
-  log?: (msg: string) => void;
-  now?: () => number;
-  env?: NodeJS.ProcessEnv;
-  spawnFn?: SpawnLike;
-  /** 评审模型（"inherit" 或 provider/model）：每次派生现取，配置改动立即生效 */
-  reviewModel?: () => string;
-  /** 必红自检没过 → 整条流水线停用（设计稿 12.4） */
-  selftestFailed?: () => boolean;
-  /** 评审督导的 spawn（默认 node spawn；单测注入假实现） */
-  supervisorSpawnFn?: SupervisorSpawn;
-  /** pid 存活判定（全局单飞闸用；单测注入，测试里不起真子进程） */
-  alive?: (pid: number) => boolean;
-}
-
-export interface DispatchedRun {
-  runId: string;
-  runDir: string;
-  pid: number | null;
-}
-
-/** 派发结果：调用方（命令 / 事件）要据此出文案，所以不能再只用 null 表示「没派」 */
-export type DispatchOutcome =
-  | { status: "dispatched"; run: DispatchedRun }
-  | { status: "skipped"; why: "disabled" | "cap" | "lock" | "lock-error" | "selftest-failed" | "busy"; ownerPid: number | null }
-  | { status: "superseded"; rounds: number };
-
-export interface DispatchOptions {
-  /** 手动 `/skill-evolve run`：跳过去抖与单会话上限，但**仍必须守全局锁** */
-  bypassThrottle?: boolean;
-  trigger?: RunRecord["trigger"];
-}
+// 类型都搬到了 ./dispatch-types.ts（本文件贴着 300 行闸门），这里原样再导出，调用方路径不变
+export type { DispatchInput, DispatchDeps, DispatchedRun, DispatchOutcome, DispatchOptions } from "./dispatch-types.ts";
 
 /** 去抖：窗口内又结束一轮，只更新 pending，不再叠加进程 */
 export function shouldDebounce(lastDispatchAt: number | undefined, now: number, idleMs: number): boolean {
@@ -104,6 +60,26 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
     const merged = mergePendingRounds(pending.get(input.sessionId), input, at);
     pending.set(input.sessionId, merged);
     return merged;
+  };
+
+  /**
+   * 并入在途复盘的这一轮：不建 run、不抢锁、不起进程，只把轮数累加进那条 run 的 coverage。
+   * 手动 `/skill-evolve run` 也走这道检查 —— 「立刻复盘」不该变成「同一会话并行两条」。
+   */
+  const tryMerge = (input: DispatchInput, at: number): DispatchOutcome | null => {
+    const result = mergeRoundIntoRun({
+      evolutionDir: deps.evolutionDir,
+      sessionId: input.sessionId,
+      // 本轮 + 之前被去抖挡下、还没派出去的轮次
+      rounds: (pending.get(input.sessionId)?.rounds ?? 0) + 1,
+      now: at,
+      telemetry: deps.telemetry,
+      log,
+      ...(deps.alive ? { isAlive: deps.alive } : {}),
+    });
+    if (result === null) return null;
+    pending.delete(input.sessionId);
+    return { status: "merged", runId: result.runId, rounds: result.rounds };
   };
 
   const run = async (input: DispatchInput, options: DispatchOptions = {}): Promise<DispatchOutcome> => {
@@ -143,6 +119,10 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
         return { status: "skipped", why: "cap", ownerPid: null };
       }
     }
+
+    // 同会话聚合：已有在途复盘就把这一轮并进去（放单飞闸之前 —— 单飞闸只会回一句 busy 然后丢掉这一轮）
+    const merged = tryMerge(input, at);
+    if (merged) return merged;
 
     // 全局单飞（跨会话也成立）：已有复盘或督导在跑这一轮就不叠进程；放去抖 / 上限之后，那两条是「本轮不派」的既定语义
     const occupant = guardBusy({ evolutionDir: deps.evolutionDir, sessionId: input.sessionId, telemetry: deps.telemetry, trigger, alive: deps.alive, log });

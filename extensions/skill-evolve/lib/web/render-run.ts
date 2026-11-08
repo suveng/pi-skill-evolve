@@ -9,6 +9,7 @@
 import type { WebState } from "./data.ts";
 import { DIFF_PREVIEW_LINES, renderDiffLines, parseDiffLines } from "./diff-lines.ts";
 import type { RunBlocking, RunDetail } from "./run-detail.ts";
+import { sessionHref } from "./run-session.ts";
 import { shellPage } from "./shell.ts";
 import { escapeHtml, formatStamp } from "./text.ts";
 
@@ -21,6 +22,17 @@ function overview(detail: RunDetail): string {
   const log = detail.hasChildLog
     ? `<a href="/log?runId=${encodeURIComponent(detail.runId)}">child.log</a>`
     : `<span class="off">没有 child.log</span>`;
+  // 会话：完整 sessionId 做成「会话详情」链接（列表行上只有前 8 位，这里给全的）
+  const sessionFile = detail.sessionFile ?? null;
+  const href = sessionHref({ sessionId: detail.sessionId ?? null, sessionFile });
+  const session =
+    href === null
+      ? `<span class="off">run.json 没写 sessionId</span>`
+      : `<a href="${escapeHtml(href)}"><code>${escapeHtml(detail.sessionId ?? "")}</code></a> <span class="hint">（点开看会话原文）</span>`;
+  const sessionFileCell =
+    sessionFile === null
+      ? `<span class="off">run.json 没写 sessionFile</span>`
+      : `<code>${escapeHtml(sessionFile)}</code>`;
   return `<section>
 <h2>概要</h2>
 <div class="kv">
@@ -28,6 +40,8 @@ ${kv("runId", `<code>${escapeHtml(detail.runId)}</code>`)}
 ${kv("状态", escapeHtml(detail.status))}
 ${kv("技能", escapeHtml(detail.skill.length > 0 ? detail.skill : "—"))}
 ${kv("触发", escapeHtml(detail.trigger))}
+${kv("会话", session)}
+${kv("会话文件", sessionFileCell)}
 ${kv("开始", escapeHtml(formatStamp(detail.startedAt)))}
 ${kv("结束", escapeHtml(formatStamp(detail.endedAt)) + (detail.endedAt === null ? "" : ' <span class="hint">（取最后一个产出时刻）</span>'))}
 ${kv("pid", detail.pid === null ? "—" : String(detail.pid))}

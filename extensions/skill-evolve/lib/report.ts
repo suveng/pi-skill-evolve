@@ -161,7 +161,7 @@ export function renderReport(input: ReportInput): string {
   ].join("\n");
 }
 
-/** 手动 `/skill-evolve run` 的回执：把三种 outcome 翻译成一句人话（CLI 回显用） */
+/** 手动 `/skill-evolve run` 的回执：把四种 outcome 翻译成一句人话（CLI 回显用） */
 export function renderManualDispatch(outcome: DispatchOutcome): string {
   if (outcome.status === "dispatched") {
     const { runId, pid, runDir } = outcome.run;
@@ -175,6 +175,9 @@ export function renderManualDispatch(outcome: DispatchOutcome): string {
       return `已有子进程在跑（pid ${outcome.ownerPid ?? "未知"}），全局同时只允许一个；本次未派发`;
     }
     return `本次未派发：${outcome.why}`;
+  }
+  if (outcome.status === "merged") {
+    return `同一会话已有在途复盘 ${outcome.runId}：本轮并进去了（共 ${outcome.rounds} 轮），不再另派`;
   }
   return `本轮已在待复盘区间里（累计 ${outcome.rounds} 轮），静默窗口过后会自动补一次`;
 }

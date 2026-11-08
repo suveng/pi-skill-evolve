@@ -53,6 +53,10 @@ export interface RunDetail {
   runId: string;
   status: string;
   trigger: string;
+  /** pi sessionId（这轮复盘是哪个会话跑出来的）；老 run.json 可能没有 = null */
+  sessionId: string | null;
+  /** 会话原文 .jsonl 的绝对路径；没有 = null */
+  sessionFile: string | null;
   /** 提案目标技能；没有提案时为空串 */
   skill: string;
   startedAt: number | null;
@@ -201,6 +205,8 @@ export function readRunDetail(evolutionDir: string, runId: string): RunDetail | 
     runId,
     status: asText(record?.status, "（无 run.json）"),
     trigger: asText(record?.trigger, "—"),
+    sessionId: asText(record?.sessionId) || null,
+    sessionFile: asText(record?.sessionFile) || null,
     skill,
     startedAt: asNumber(record?.dispatchedAt),
     endedAt: stamps.length === 0 ? null : Math.max(...stamps),

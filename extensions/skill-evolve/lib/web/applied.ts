@@ -11,6 +11,7 @@ import { readVerify } from "../apply.ts";
 import { readProposalSummary } from "../proposal.ts";
 import type { QueueItem } from "../queue.ts";
 import { asNumber, asText, readJson } from "./json-read.ts";
+import { readRunSession, type SessionRef } from "./run-session.ts";
 
 /** 已采纳列表上限：与 DONE_LIMIT 同量级 —— 网页看近期，不是审计日志 */
 export const APPLIED_LIMIT = 50;
@@ -18,6 +19,8 @@ export const APPLIED_LIMIT = 50;
 /** 一个已采纳条目：技能 · 提案类型 · +N/-M · 采纳时间 · 五闸是否全 ok */
 export interface AppliedItem {
   runId: string;
+  /** 这条 run 是哪个会话跑出来的：行上「会话」列要用（缺 = NO_SESSION） */
+  session: SessionRef;
   /** auto（不需要人） / approval（人批） */
   level: string;
   skill: string;
@@ -50,6 +53,7 @@ export function buildApplied(items: readonly QueueItem[], evolutionDir: string):
       : [];
     rows.push({
       runId: item.runId,
+      session: readRunSession(runDir),
       level: item.level,
       skill: item.skill.length > 0 ? item.skill : (proposal?.skill ?? ""),
       type: proposal?.type ?? asText(item.proposalType, "—"),
