@@ -16,10 +16,17 @@ import * as path from "node:path";
 
 import { compileRules, listSkillDirs, loadHardRules, scanSkillsDir, scanText } from "../lib/hard-rules.ts";
 
-const REPO = "/home/suveng/doger/ev/vkk_client_flutter";
-const RULES_FILE = path.join(REPO, ".pi/evolution/rules/hard-rules.json");
+// 规则文件属于「工作区数据」而不是包里的一部分：源码仓在 .pi/evolution/rules/ 下有一份，
+// npm 包里没有。所以路径从当前文件往上推三层（.../extensions/skill-evolve/test → 仓库根），
+// 找不到就跳过 —— 不要写死某台机器的绝对路径（本地过、CI 挂就是死在这上面）。
+const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../..");
+const RULES_FILE = process.env.SKILL_EVOLVE_RULES ?? path.join(REPO, ".pi/evolution/rules/hard-rules.json");
 
-test("仓库自带的 hard-rules.json 能编译：6 条 P0、无坏规则、字段齐全", () => {
+test("仓库自带的 hard-rules.json 能编译：6 条 P0、无坏规则、字段齐全", (t) => {
+  if (!fs.existsSync(RULES_FILE)) {
+    t.skip(`本机没有 ${RULES_FILE}（工作区数据，npm 包不附带）`);
+    return;
+  }
   const loaded = loadHardRules(RULES_FILE);
   assert.deepEqual(loaded.invalid, []);
   assert.equal(loaded.compiled.length, 6);
