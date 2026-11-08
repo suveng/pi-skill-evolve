@@ -29,21 +29,6 @@ export const RANGE_LABEL: Record<RangeKey, string> = {
 /** 状态下拉的可选值：既有 run 终态，也有待处理页自己的两种（running / stale） */
 export const STATUS_OPTIONS = ["running", "stale", "reviewed", "applied", "rejected", "failed", "analyzed"] as const;
 
-/**
- * 状态下拉的中文标签（用户 2026-11-08：「这里的下拉应该是中文」）。
- * 值仍然是状态机原文（URL 与过滤逻辑不变），只改给人看的那一侧；
- * 与徽章文案保持同一套词——同一个概念全站只能有一个中文名。
- */
-export const STATUS_LABEL: Record<(typeof STATUS_OPTIONS)[number], string> = {
-  running: "复盘中",
-  stale: "卡死",
-  reviewed: "待入队",
-  applied: "已采纳",
-  rejected: "已拒绝",
-  failed: "失败",
-  analyzed: "待评审",
-};
-
 export interface ListFilter {
   skill: string;
   /** 空串 = 全部 */

@@ -21,7 +21,7 @@ import {
   telemetryOffWhileEnabled,
 } from "../flags.ts";
 import type { WebView } from "./data.ts";
-import { RANGE_KEYS, RANGE_LABEL, STATUS_LABEL, STATUS_OPTIONS, type ListFilter, type ViewPage } from "./filter.ts";
+import { RANGE_KEYS, RANGE_LABEL, type ListFilter, type ViewPage } from "./filter.ts";
 import { listHref, type ListExtras } from "./list-query.ts";
 import { escapeHtml, formatStamp, formatTimeSeconds } from "./text.ts";
 import type { WebControls } from "./activity.ts";
@@ -106,16 +106,7 @@ ${run}</div>
 ${warn}${backlog}`;
 }
 
-/** 状态下拉：先「全部」，再固定七个状态（顺序与 STATUS_OPTIONS 一致，别在渲染层重排） */
-function statusSelect(current: string): string {
-  const options = [`<option value="">全部状态</option>`];
-  for (const status of STATUS_OPTIONS) {
-    // value 仍是状态机原文（过滤逻辑不变），只把展示换中文
-    options.push(`<option value="${status}"${status === current ? " selected" : ""}>${STATUS_LABEL[status]}</option>`);
-  }
-  return options.join("");
-}
-
+/** 时间下拉：只有「看多久内」需要人手动换，状态与技能已在 tab 与技能页面各自解决了 */
 function rangeSelect(current: string): string {
   return RANGE_KEYS.map(
     (key) => `<option value="${key}"${key === current ? " selected" : ""}>${RANGE_LABEL[key]}</option>`,
@@ -123,16 +114,16 @@ function rangeSelect(current: string): string {
 }
 
 /**
- * 筛选表单：hidden view 保证 GET 提交后还在同一页；「重置」链回不带筛选的本页。
- * `open` / `live` 也一并带上：筛选不该顺手把「展开分组」「自动刷新」这两个开关清掉。
+ * 筛选表单：只留「时间」一个条件。
+ *   技能：每个列表页的行里已经有技能列，技能页可以按技能点进来，再摆一个模糊搜索框没人知道该填什么；
+ *   状态：顶部 tab 本身就是按状态分的（待处理 / 待审批 / 已采纳 / 已处理 / 复盘报告），重复选毫无意义。
+ * 两个参数（skill / status）仍由 `parseListQuery` 支持，旧链接与代码内部跳转不会断，只是不再出输入框。
  */
 export function renderFilterForm(view: WebView, filter: ListFilter, extras: ListExtras): string {
   const keep = extraInputs(extras);
   return `<form class="filter" method="get">
 <input type="hidden" name="view" value="${view}">
-${keep}<label>技能 <input type="text" name="skill" value="${escapeHtml(filter.skill)}" placeholder="技能名包含…" size="16"></label>
-<label>状态 <select name="status">${statusSelect(filter.status)}</select></label>
-<label>时间 <select name="range">${rangeSelect(filter.range)}</select></label>
+${keep}<label>时间 <select name="range">${rangeSelect(filter.range)}</select></label>
 <button type="submit">筛选</button>
 <a class="btn" href="${escapeHtml(listHref(view, filter, 1, extras))}">重置</a>
 </form>`;
