@@ -17,11 +17,11 @@ function workspace(): string {
   return path.join(cwd, ".pi", "evolution");
 }
 
-test("DEFAULT_CONFIG：只开自动评审，采集 / 复盘 / 自动采纳都默认关", () => {
-  // 自动评审单独为 true 是安全的：enabled 关着时它永远走不到，不会替 clone 下来的人花 token
+test("DEFAULT_CONFIG：四个开关默认全关", () => {
+  // 四个默认全关：clone 下来不采集、不派生、不评审、不落盘（2026-11-08 用户定）
   assert.deepEqual(
     [DEFAULT_CONFIG.enabled, DEFAULT_CONFIG.telemetry, DEFAULT_CONFIG.autoReview, DEFAULT_CONFIG.autoApply],
-    [false, false, true, false],
+    [false, false, false, false],
   );
 });
 
@@ -30,14 +30,14 @@ test("loadConfig：没有 config.json 时只开自动评审，且不会顺手造
   const config = loadConfig(evolutionDir);
   assert.deepEqual(
     [config.enabled, config.telemetry, config.autoReview, config.autoApply],
-    [false, false, true, false],
+    [false, false, false, false],
   );
   assert.equal(fs.existsSync(configFile(evolutionDir)), false, "读配置不能有副作用");
 });
 
 test("normalizeConfig：空对象与缺字段都回落到默认（评审开、其余关）", () => {
   const empty = normalizeConfig({});
-  assert.deepEqual([empty.enabled, empty.telemetry, empty.autoReview, empty.autoApply], [false, false, true, false]);
+  assert.deepEqual([empty.enabled, empty.telemetry, empty.autoReview, empty.autoApply], [false, false, false, false]);
   const onlyEnabled = normalizeConfig({ enabled: true });
   assert.deepEqual(
     [onlyEnabled.enabled, onlyEnabled.telemetry, onlyEnabled.autoApply],
@@ -49,12 +49,12 @@ test("normalizeConfig：空对象与缺字段都回落到默认（评审开、�
 test("normalizeConfig：autoReview / autoApply 写错类型回落到默认值", () => {
   // 手改配置写成字符串是常事：坏值只回退那一个字段，不能让整份配置失效
   const wrong = normalizeConfig({ autoReview: "off", autoApply: 1 });
-  assert.deepEqual([wrong.autoReview, wrong.autoApply], [true, false]);
+  assert.deepEqual([wrong.autoReview, wrong.autoApply], [false, false]);
   const explicit = normalizeConfig({ autoReview: false, autoApply: true, enabled: true });
   assert.deepEqual([explicit.enabled, explicit.autoReview, explicit.autoApply], [true, false, true]);
 });
 
-test("saveConfigSwitch：on 只开复盘 + 评审，采集与自动采纳保持原值", async () => {
+test("saveConfigSwitch：on 只开复盘，采集 / 评审 / 采纳都保持原值", async () => {
   const evolutionDir = workspace();
   fs.mkdirSync(evolutionDir, { recursive: true });
   fs.writeFileSync(
@@ -65,13 +65,13 @@ test("saveConfigSwitch：on 只开复盘 + 评审，采集与自动采纳保持�
   const next = await saveConfigSwitch(evolutionDir, true, directQueue);
   assert.deepEqual(
     [next.enabled, next.autoReview, next.telemetry, next.autoApply, next.idleMs, next.perSessionCap],
-    [true, true, true, false, 1_234, 3],
+    [true, false, true, false, 1_234, 3],
   );
   const raw = JSON.parse(fs.readFileSync(configFile(evolutionDir), "utf8"));
   assert.deepEqual(
     [raw.enabled, raw.autoReview, raw.telemetry, raw.autoApply, raw.idleMs, raw.perSessionCap],
-    [true, true, true, false, 1_234, 3],
-    "写盘内容必须与返回值一致：采集关着不能被 on 顺手打开，自动采纳更不能被打开",
+    [true, false, true, false, 1_234, 3],
+    "写盘内容必须与返回值一致：on 只开复盘，采集 / 评审 / 采纳都保持原值",
   );
 });
 

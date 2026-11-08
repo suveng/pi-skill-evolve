@@ -1,9 +1,9 @@
 /**
  * 技能进化配置：唯一来源是 `.pi/evolution/config.json`。
  *
- * **默认只开自动评审，其余三个关**（采集 `telemetry:false` / 复盘 `enabled:false` / 自动采纳 `autoApply:false`，
- * 自动评审 `autoReview:true`）：别人 clone 下来不采集、不派生、不落盘，也就没有 token 开销 ——
- * `autoReview` 单独为 true 是安全的，因为它只在「复盘真的跑起来」之后才起作用（`enabled` 关着就永远走不到）。
+ * **四个开关默认全关**（采集 `telemetry` / 复盘 `enabled` / 评审 `autoReview` / 采纳 `autoApply` 都是 false，
+ * 2026-11-08 用户定「autoReview 默认也关」）：别人 clone 下来不采集、不派生、不评审、不落盘，零 token 开销。
+ * 要用就一条一条显式打开（`collect` / `dispatch` / `review` / `apply`），谁开谁负责。
  * 每一档花不花 token：
  * - 采集遥测：只写本地 jsonl，**不花 token**；
  * - 自动复盘：起子进程跑 agent，**花 token**；
@@ -76,9 +76,9 @@ export const DEFAULT_CONFIG: Readonly<EvolutionConfig> = Object.freeze({
   maxRuntimeMs: 20 * 60_000,
   perSessionCap: 20,
   telemetry: false,
-  // 自动评审默认开：设计原意就是「复盘 → 评审 → 采纳」一条流水线，评审只是流程的一部分，
-  // 而 enabled 关着时它根本不生效，所以默认 true 不会让 clone 下来的人白花 token。
-  autoReview: true,
+  // 自动评审默认关（2026-11-08 用户定）：评审本身也要起子进程再花一份 token，
+  // 不能让「打开复盘」顺手把 token 翻倍。要评审就显式 `/skill-evolve review on`。
+  autoReview: false,
   // 自动采纳默认关：它改的是仓库文件，必须人工先开一次；默认开等于替用户做决定。
   autoApply: false,
   ui: Object.freeze({ widget: false, entries: false }),
@@ -193,7 +193,7 @@ export async function saveConfigSwitch(
 ): Promise<EvolutionConfig> {
   const raw = readRawConfig(evolutionDir);
   const patch = on
-    ? { enabled: true, autoReview: true }
+    ? { enabled: true }
     : { enabled: false, telemetry: false, autoReview: false, autoApply: false };
   const next = normalizeConfig({ ...raw, ...patch });
   const file = configFile(evolutionDir);

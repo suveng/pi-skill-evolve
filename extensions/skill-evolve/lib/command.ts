@@ -27,7 +27,7 @@ export const SUBCOMMANDS: readonly SubcommandItem[] = [
   { value: "dispatch", label: "dispatch", description: "只开/关自动复盘（on|off；会派生子进程，花 token）" },
   { value: "review", label: "review", description: "只开/关自动评审（on|off；提案后再起督导，再花一份 token）" },
   { value: "apply", label: "apply", description: "只开/关自动采纳（on|off；auto 提案自动落盘，可回滚）" },
-  { value: "on", label: "on", description: "复盘与评审一起打开（不动采集，也不动自动采纳）" },
+  { value: "on", label: "on", description: "只打开自动复盘（采集 / 评审 / 采纳都不动）" },
   { value: "off", label: "off", description: "四个开关（采集/复盘/评审/采纳）一起关闭" },
 ];
 

@@ -68,7 +68,8 @@ function harness(
 }
 
 test("派发成功时同一轮就起评审督导，并把评审模型透传过去", async () => {
-  const h = harness({ reviewModel: () => "deepseek/deepseek-v3.2" });
+  // 评审默认关（2026-11-08），这里显式打开才测得到「起督导 + 透传模型」
+  const h = harness({ config: { autoReview: true }, reviewModel: () => "deepseek/deepseek-v3.2" });
   const outcome = await h.dispatch({ sessionId: "sess-1", skills: ["alpha"] });
   assert.equal(outcome.status, "dispatched");
   assert.equal(h.supervisorCalls.length, 1, "必须起且只起一个督导");

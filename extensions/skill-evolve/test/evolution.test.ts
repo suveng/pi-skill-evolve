@@ -222,7 +222,7 @@ test("statusText / reportText：无数据也不崩，且带上盲区提示", asy
   const status = await h.evo.statusText();
   assert.equal(
     status.includes(
-      "采集：开（遥测写入 .pi/evolution/telemetry/）｜复盘：开（会派生 agent）｜评审：开（提案后自动起督导）｜采纳：关（auto 提案等人工批准）",
+      "采集：开（遥测写入 .pi/evolution/telemetry/）｜复盘：开（会派生 agent）｜评审：关（提案停在 proposed 等人工）｜采纳：关（auto 提案等人工批准）",
     ),
     true,
   );
@@ -257,7 +257,7 @@ test("reportText：按遥测给出曝光/加载/未命中", async () => {
   );
 });
 
-test("setEnabled：off 四个全关、on 只开复盘 + 评审（不动采集与自动采纳）", async () => {
+test("setEnabled：off 四个全关、on 只开复盘（不动采集 / 评审 / 采纳）", async () => {
   const h = harness();
   const message = await h.evo.setEnabled(false);
   assert.equal(message.includes("关闭"), true);
@@ -267,8 +267,8 @@ test("setEnabled：off 四个全关、on 只开复盘 + 评审（不动采集与
 
   await h.evo.setEnabled(true);
   const back = JSON.parse(fs.readFileSync(path.join(h.dir, ".pi", "evolution", "config.json"), "utf8"));
-  // 用户定的语义：on = 复盘 + 评审两开；采集要另外 collect on，自动采纳要另外 apply on
-  assert.deepEqual([back.enabled, back.autoReview, back.telemetry, back.autoApply], [true, true, false, false]);
+  // 用户定的语义（2026-11-08）：四个开关各管一段，on 只开自动复盘；评审要另外 review on
+  assert.deepEqual([back.enabled, back.autoReview, back.telemetry, back.autoApply], [true, false, false, false]);
 });
 
 test("setFlag：只切一个字段，并把当前四个开关的状态写进回执", async () => {
@@ -309,9 +309,9 @@ test("没有 config.json 时默认全关：不派生、不落遥测", async () =
   });
   const status = await evo.statusText();
   assert.equal(
-    status.includes("采集：关（不写遥测）｜复盘：关（不会派生 agent）｜评审：开（提案后自动起督导）｜采纳：关（auto 提案等人工批准）"),
+    status.includes("采集：关（不写遥测）｜复盘：关（不会派生 agent）｜评审：关（提案停在 proposed 等人工）｜采纳：关（auto 提案等人工批准）"),
     true,
-    "默认只开自动评审：enabled 关着时它永远走不到",
+    "默认四个全关：采集 / 复盘 / 评审 / 采纳都不动",
   );
   evo.recordAdvertised({ sessionId: "s1", cwd: dir, prompt: "x", skills: [skill("a")] });
   evo.settle({ sessionId: "s1" });
