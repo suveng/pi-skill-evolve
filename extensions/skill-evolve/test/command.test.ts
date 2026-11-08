@@ -78,7 +78,7 @@ function fakeEvolution(calls: string[]): Evolution {
 test("补全：空前缀给全量，命中前缀只给命中项，乱前缀也给全量", () => {
   assert.deepEqual(
     matchSubcommand("").map((item) => item.value),
-    ["status", "report", "run", "baseline", "selftest", "approve", "queue", "web", "config", "collect", "review", "on", "off"],
+    ["status", "report", "run", "baseline", "selftest", "approve", "queue", "web", "config", "collect", "dispatch", "review", "apply", "on", "off"],
   );
   assert.deepEqual(
     matchSubcommand("re").map((item) => item.value),
@@ -94,7 +94,11 @@ test("补全：空前缀给全量，命中前缀只给命中项，乱前缀也�
   );
   assert.deepEqual(
     matchSubcommand("ap").map((item) => item.value),
-    ["approve"],
+    ["approve", "apply"],
+  );
+  assert.deepEqual(
+    matchSubcommand("di").map((item) => item.value),
+    ["dispatch"],
   );
   assert.deepEqual(
     matchSubcommand("o").map((item) => item.value),
@@ -110,7 +114,7 @@ test("补全：空前缀给全量，命中前缀只给命中项，乱前缀也�
   );
   assert.deepEqual(
     matchSubcommand("zzz").map((item) => item.value),
-    ["status", "report", "run", "baseline", "selftest", "approve", "queue", "web", "config", "collect", "review", "on", "off"],
+    ["status", "report", "run", "baseline", "selftest", "approve", "queue", "web", "config", "collect", "dispatch", "review", "apply", "on", "off"],
   );
   assert.deepEqual(
     matchSubcommand("w").map((item) => item.value),
@@ -193,7 +197,10 @@ test("未知子命令返回用法串且不碰 Evolution", async () => {
   const calls: string[] = [];
   const text = await runCommand("propose", fakeEvolution(calls), TARGET);
   assert.match(text, /未知子命令：propose/);
-  assert.match(text, /status\|report\|run\|baseline\|selftest\|approve\|queue\|web\|config\|collect\|review\|on\|off/);
+  assert.match(
+    text,
+    /status\|report\|run\|baseline\|selftest\|approve\|queue\|web\|config\|collect\|dispatch\|review\|apply\|on\|off/,
+  );
   assert.deepEqual(calls, []);
 });
 
@@ -205,20 +212,36 @@ test("collect on|off：只动采集（telemetry），不碰复盘", async () => 
   assert.deepEqual(calls, ["flag:telemetry=true", "flag:telemetry=false"]);
 });
 
-test("review on|off：只动复盘（enabled），不碰采集", async () => {
+test("dispatch on|off：只动自动复盘（enabled），不碰采集", async () => {
   const calls: string[] = [];
   const evo = fakeEvolution(calls);
-  assert.equal(await runCommand("review on", evo, TARGET), "开关：enabled=true");
-  assert.equal(await runCommand("review off", evo, TARGET), "开关：enabled=false");
+  assert.equal(await runCommand("dispatch on", evo, TARGET), "开关：enabled=true");
+  assert.equal(await runCommand("dispatch off", evo, TARGET), "开关：enabled=false");
   assert.deepEqual(calls, ["flag:enabled=true", "flag:enabled=false"]);
 });
 
-test("collect / review 参数非法（缺失或写错）：给用法串且不改配置", async () => {
+test("review on|off：只动自动评审（autoReview）—— 语义从「自动复盘」改到这里", async () => {
   const calls: string[] = [];
   const evo = fakeEvolution(calls);
-  for (const args of ["collect", "collect yes", "review", "review 1"]) {
+  assert.equal(await runCommand("review on", evo, TARGET), "开关：autoReview=true");
+  assert.equal(await runCommand("review off", evo, TARGET), "开关：autoReview=false");
+  assert.deepEqual(calls, ["flag:autoReview=true", "flag:autoReview=false"]);
+});
+
+test("apply on|off：只动自动采纳（autoApply）", async () => {
+  const calls: string[] = [];
+  const evo = fakeEvolution(calls);
+  assert.equal(await runCommand("apply on", evo, TARGET), "开关：autoApply=true");
+  assert.equal(await runCommand("apply off", evo, TARGET), "开关：autoApply=false");
+  assert.deepEqual(calls, ["flag:autoApply=true", "flag:autoApply=false"]);
+});
+
+test("collect / dispatch / review / apply 参数非法（缺失或写错）：给用法串且不改配置", async () => {
+  const calls: string[] = [];
+  const evo = fakeEvolution(calls);
+  for (const args of ["collect", "collect yes", "dispatch", "review", "review 1", "apply", "apply yes"]) {
     const text = await runCommand(args, evo, TARGET);
-    assert.match(text, /用法：\/skill-evolve (collect|review) on\|off/, args);
+    assert.match(text, /用法：\/skill-evolve (collect|dispatch|review|apply) on\|off/, args);
     assert.match(text, /配置未改动/, args);
   }
   assert.deepEqual(calls, [], "非法参数不该调 setFlag");

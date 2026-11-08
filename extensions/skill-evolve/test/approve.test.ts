@@ -59,9 +59,72 @@ function tools(fixture: Fixture, over: Partial<Parameters<typeof createApplyTool
     git: (args: string[]) => ({ code: 0, out: args[0] === "status" ? "" : "" }),
     loadDiagnostics: () => [],
     runMdCheck: () => ({ code: 0, output: "" }),
+    // 开关默认全开（老用例断言的是「开关都开着」时的行为）；个别用例自己 over 掉
+    flags: () => ({ autoReview: true, autoApply: true }),
     ...over,
   });
 }
+
+test("autoApply 关着：auto 条照旧入队但不落盘，提示只打一次", async () => {
+  const fixture = setup();
+  seedRun(fixture, "run-auto", "reviewed");
+  await seedGate0(fixture);
+  const logs: string[] = [];
+  const t = tools(fixture, { flags: () => ({ autoReview: true, autoApply: false }), log: (line: string) => logs.push(line) });
+  assert.equal(await t.enqueueReady(), 1, "入队不受采纳开关影响：待审批页要看得见");
+  assert.equal(await t.autoApplyPending(), 0, "采纳关着一条都不许动");
+  assert.equal(await t.autoApplyPending(), 0);
+  const item = readQueue(fixture.evolutionDir)[0]!;
+  assert.equal(item.status, "pending", "队列条目必须还在，等人工批准");
+  assert.equal(item.level, "auto");
+  assert.equal(fs.readFileSync(fixture.skillAbs, "utf8"), SKILL_TEXT, "技能文件一个字都不许改");
+  const notices = logs.filter((line) => line.includes("自动采纳已关"));
+  assert.equal(notices.length, 1, "同一批待办只提示一次，不能每轮扫描刷一遍");
+  assert.match(notices[0]!, /1 条 auto 提案在队列里等人工批准/);
+});
+
+test("autoReview 关着：proposed 的 run 也入队并标 reviewSkipped（待审批页可见）", async () => {
+  const fixture = setup();
+  seedRun(fixture, "run-proposed", "proposed");
+  const t = tools(fixture, { flags: () => ({ autoReview: false, autoApply: false }) });
+  assert.equal(await t.enqueueReady(), 1, "评审关着时 run 停在 proposed，也要让待审批页看得见");
+  const item = readQueue(fixture.evolutionDir)[0]!;
+  assert.equal(item.reviewSkipped, true, "没有 03-review.json 的条目标记出来，页面才能区分");
+  assert.equal(item.level, "auto", "级别仍按 classify-action 的分类走，不因为跳过评审就降级");
+});
+
+test("中途打开评审：同一个 tools 实例先关后开，下一轮扫描不再收 proposed", async () => {
+  const fixture = setup();
+  const flags = { autoReview: false, autoApply: false };
+  const t = tools(fixture, { flags: () => flags });
+  seedRun(fixture, "run-p1", "proposed");
+  assert.equal(await t.enqueueReady(), 1, "关着的时候 proposed 也入队");
+  flags.autoReview = true;
+  seedRun(fixture, "run-p2", "proposed");
+  assert.equal(await t.enqueueReady(), 0, "打开评审后要等督导写 reviewed，不再提前入队");
+});
+
+test("autoReview 开着：proposed 的 run 不入队（等督导写完 reviewed 再进）", async () => {
+  const fixture = setup();
+  seedRun(fixture, "run-proposed", "proposed");
+  const t = tools(fixture, { flags: () => ({ autoReview: true, autoApply: true }) });
+  assert.equal(await t.enqueueReady(), 0);
+  assert.deepEqual(readQueue(fixture.evolutionDir), []);
+});
+
+test("中途改开关：同一个 tools 实例先关后开，下一轮扫描就落盘", async () => {
+  const fixture = setup();
+  seedRun(fixture, "run-auto", "reviewed");
+  await seedGate0(fixture);
+  const flags = { autoReview: true, autoApply: false };
+  const t = tools(fixture, { flags: () => flags });
+  await t.enqueueReady();
+  assert.equal(await t.autoApplyPending(), 0);
+  // 用户中途 `/skill-evolve apply on`：下一轮扫描就该生效，不许等重开会话
+  flags.autoApply = true;
+  assert.equal(await t.autoApplyPending(), 1);
+  assert.equal(readQueue(fixture.evolutionDir)[0]!.status, "applied");
+});
 
 test("只给 reviewed 的 run 入队，级别由代码判（description 改动 → auto）", async () => {
   const fixture = setup();

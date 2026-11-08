@@ -125,6 +125,7 @@ test("督导进程同样落盘：supervisor.log 就在 run 目录里", () => {
     runDir,
     cwd: dir,
     env: {},
+    autoReview: true,
     spawnFn: (_command, _args, options) => {
       stdio = options.stdio;
       return { pid: 7777, unref: () => {} };

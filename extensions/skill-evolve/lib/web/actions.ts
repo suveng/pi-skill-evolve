@@ -29,7 +29,7 @@ export type ActionName = (typeof ACTION_NAMES)[number];
 
 /** 一个写动作：返回给人看的结论（首行进 303 的 msg / err） */
 export type WebAction = (runId: string) => Promise<string>;
-/** 单个开关：`field` = telemetry（采集，不花 token）/ enabled（复盘，花 token）；`next` 由这里取反后传入 */
+/** 单个开关：字段名 → /skill-evolve collect / dispatch / review / apply 各切一个；`next` 由这里取反后传入 */
 export type ToggleHook = (field: ConfigFlag, next: boolean) => Promise<string>;
 /** 立即复盘 / 重跑：都是「触发一次新的复盘」，由 index.ts 接 evo.runNow */
 export type RunHook = () => Promise<string>;
@@ -194,8 +194,8 @@ async function handleNamedAction(
 }
 
 /**
- * `POST /toggle?field=telemetry|enabled`：只翻一个字段。五道校验与 /action 共用，
- * 查询串只决定「翻哪一个」，不影响任何一道校验。
+ * `POST /toggle?field=telemetry|enabled|autoReview|autoApply`：只翻一个字段。五道校验与 /action 共用，
+ * 查询串只决定「翻哪一个」，不影响任何一道校验；四个开关互不联动（要批量切只有命令 on|off）。
  */
 async function handleToggleField(
   ctx: WriteContext,

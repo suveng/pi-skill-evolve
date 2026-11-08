@@ -1,7 +1,15 @@
 /**
  * 技能进化配置：唯一来源是 `.pi/evolution/config.json`。
  *
- * **默认全关**（`enabled:false` + `telemetry:false`）：别人 clone 下来什么都不写、不派生、不留痕迹；
+ * **默认只开自动评审，其余三个关**（采集 `telemetry:false` / 复盘 `enabled:false` / 自动采纳 `autoApply:false`，
+ * 自动评审 `autoReview:true`）：别人 clone 下来不采集、不派生、不落盘，也就没有 token 开销 ——
+ * `autoReview` 单独为 true 是安全的，因为它只在「复盘真的跑起来」之后才起作用（`enabled` 关着就永远走不到）。
+ * 每一档花不花 token：
+ * - 采集遥测：只写本地 jsonl，**不花 token**；
+ * - 自动复盘：起子进程跑 agent，**花 token**；
+ * - 自动评审：复盘出了提案再起一个督导子进程，**再花一份 token**；
+ * - 自动采纳：改 `.pi/skills/` 与 `.cursor/` 文件，**不花 token，但会动仓库文件**（可回滚）。
+ *
  * 只有显式 `/skill-evolve on` 才写这个文件（`config.json` 也是本机偏好，进 `.gitignore`，断然不能入库
  * —— 否则一个人开了，提交一推，整个团队都被打开）。
  */
@@ -32,15 +40,17 @@ export interface WebConfig {
 }
 
 /**
- * 两个独立开关的字段名：
- * - `enabled`   = 派生复盘（会起子进程跑 agent，**花 token**）
- * - `telemetry` = 采集遥测（每轮一条曝光/加载/派生记录，只写本地 jsonl，**不花 token**）
- * 字段级分开之后，命令（collect / review）与 Web 控制条都只切其中一个。
+ * 四个独立开关的字段名（用户 2026-11-08：「自动复盘后，还有自动评审、自动采纳的流程，开关也独立出来」）：
+ * - `enabled`    = 派生复盘（起子进程跑 agent，**花 token**）
+ * - `telemetry`  = 采集遥测（只写本地 jsonl，**不花 token**）
+ * - `autoReview` = 提案后的自动评审（再起一个督导子进程，**再花一份 token**）
+ * - `autoApply`  = auto 级提案自动落盘（改 `.pi/skills/` 与 `.cursor/`，**可回滚**）
+ * 字段级分开之后，命令（collect / dispatch / review / apply）与 Web 控制条都只切其中一个。
  */
-export type ConfigFlag = "enabled" | "telemetry";
+export type ConfigFlag = "enabled" | "telemetry" | "autoReview" | "autoApply";
 
 export interface EvolutionConfig {
-  /** 派生总开关：false 时一律不派生（`/skill-evolve on|off` 会与 telemetry 一起切；`review` 只切它） */
+  /** 派生总开关：false 时一律不派生（`/skill-evolve on` 与自动评审一起开、`off` 全关；`dispatch` 只切它） */
   enabled: boolean;
   /** 去抖窗口（毫秒）：窗口内再次 settled 只记 superseded，不叠加派生 */
   idleMs: number;
@@ -50,6 +60,10 @@ export interface EvolutionConfig {
   perSessionCap: number;
   /** L0 遥测采集开关（默认关：采集会在 `.pi/evolution/telemetry/` 落盘；`collect` 只切它） */
   telemetry: boolean;
+  /** 自动评审开关（默认开：复盘出了提案就起评审督导；关掉后 run 停在 proposed 等人工批准） */
+  autoReview: boolean;
+  /** 自动采纳开关（默认关：只有 description / `.cursor` stub / AGENTS.md 索引行这三类 auto 提案会落盘，且须人工先开） */
+  autoApply: boolean;
   /** 界面推送开关：默认全关（想回 TUI 面板就显式打开） */
   ui: UiConfig;
   /** Web 面板：默认不起（谁也没要过就不该占端口），端口按约定值 7788 */
@@ -62,6 +76,11 @@ export const DEFAULT_CONFIG: Readonly<EvolutionConfig> = Object.freeze({
   maxRuntimeMs: 20 * 60_000,
   perSessionCap: 20,
   telemetry: false,
+  // 自动评审默认开：设计原意就是「复盘 → 评审 → 采纳」一条流水线，评审只是流程的一部分，
+  // 而 enabled 关着时它根本不生效，所以默认 true 不会让 clone 下来的人白花 token。
+  autoReview: true,
+  // 自动采纳默认关：它改的是仓库文件，必须人工先开一次；默认开等于替用户做决定。
+  autoApply: false,
   ui: Object.freeze({ widget: false, entries: false }),
   // Web 面板是「管理界面」，默认随 pi 启动；它与采集/派生（enabled / telemetry）是两回事，
   // 后者默认关闭——面板起来不等于开始花 token。2026-11-08 用户定。
@@ -104,6 +123,8 @@ export function normalizeConfig(raw: unknown, log: (msg: string) => void = () =>
     maxRuntimeMs: positiveInt(input.maxRuntimeMs, DEFAULT_CONFIG.maxRuntimeMs),
     perSessionCap: positiveInt(input.perSessionCap, DEFAULT_CONFIG.perSessionCap),
     telemetry: bool(input.telemetry, DEFAULT_CONFIG.telemetry),
+    autoReview: bool(input.autoReview, DEFAULT_CONFIG.autoReview),
+    autoApply: bool(input.autoApply, DEFAULT_CONFIG.autoApply),
     ui: {
       widget: bool(ui.widget, DEFAULT_CONFIG.ui.widget),
       entries: bool(ui.entries, DEFAULT_CONFIG.ui.entries),
@@ -139,8 +160,8 @@ export function loadConfig(evolutionDir: string, log: (msg: string) => void = ()
 }
 
 /**
- * 只写一个开关（`/skill-evolve collect|review`、Web 控制条的单个开关）：
- * 目标字段按传入值写，其余键（另一个开关、去抖 / 上限、ui / web 块）原样保留。
+ * 只写一个开关（`/skill-evolve collect|dispatch|review|apply`、Web 控制条的单个开关）：
+ * 目标字段按传入值写，其余键（其它三个开关、去抖 / 上限、ui / web 块）原样保留。
  * 返回归一化后的新配置，调用方用 Object.assign 原地更新正在用的那份。
  */
 export async function saveFlag(
@@ -160,17 +181,27 @@ export async function saveFlag(
 }
 
 /**
- * 一键全开/全关（`/skill-evolve on|off`）：两次单字段写入，语义仍是「采集与派生一起切」。
- * 保留这个入口是因为「先全关再走」比连点两个开关更不容易漏 —— 但它不再是唯一的开关路径。
- * 两次写在同一队列里顺序执行，最终状态一定是两个字段都等于 `on`。
+ * 一键切换（`/skill-evolve on|off`）：
+ * - `on`  = 复盘 + 评审两开（**不动采集，也不动自动采纳**）：这两项才是「花 token 的那条流水线」；
+ * - `off` = 四个全关（连采集与自动采纳一起停），因为「先全关再走」比连点四个开关更不容易漏。
+ * 一次读 + 一次写，四个键落在同一个事务里，不会出现「写了一半」的中间态。
  */
 export async function saveConfigSwitch(
   evolutionDir: string,
   on: boolean,
   queue: MutationQueue,
 ): Promise<EvolutionConfig> {
-  await saveFlag(evolutionDir, "enabled", on, queue);
-  return saveFlag(evolutionDir, "telemetry", on, queue);
+  const raw = readRawConfig(evolutionDir);
+  const patch = on
+    ? { enabled: true, autoReview: true }
+    : { enabled: false, telemetry: false, autoReview: false, autoApply: false };
+  const next = normalizeConfig({ ...raw, ...patch });
+  const file = configFile(evolutionDir);
+  await queue(file, async () => {
+    await fs.promises.mkdir(evolutionDir, { recursive: true });
+    await fs.promises.writeFile(file, `${JSON.stringify({ ...raw, ...next }, null, 2)}\n`, "utf8");
+  });
+  return next;
 }
 
 /**

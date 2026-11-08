@@ -25,7 +25,14 @@ class FakeChild {
   }
 }
 
-function harness(options: { config?: Partial<EvolutionConfig>; selftestFailed?: () => boolean; reviewModel?: () => string } = {}) {
+function harness(
+  options: {
+    config?: Partial<EvolutionConfig>;
+    selftestFailed?: () => boolean;
+    reviewModel?: () => string;
+    logs?: string[];
+  } = {},
+) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "skill-evolve-sup-"));
   const events: TelemetryEvent[] = [];
   const supervisorCalls: { args: string[]; options: Record<string, unknown> }[] = [];
@@ -47,7 +54,7 @@ function harness(options: { config?: Partial<EvolutionConfig>; selftestFailed?: 
     telemetry: writer,
     queue: directQueue,
     promptTemplatePath: TEMPLATE,
-    log: () => {},
+    log: (line: string) => options.logs?.push(line),
     now: () => NOW,
     env: {},
     spawnFn,
@@ -68,6 +75,23 @@ test("派发成功时同一轮就起评审督导，并把评审模型透传过�
   const args = h.supervisorCalls[0].args;
   assert.ok(args[args.length - 2].endsWith("run-1") || args[2].includes("runs"), `args=${args.join(" ")}`);
   assert.equal(args[args.length - 1], "deepseek/deepseek-v3.2");
+});
+
+test("自动评审关着：复盘照跑，但不起督导，run 停在 proposed 等人工", async () => {
+  const logs: string[] = [];
+  const h = harness({ config: { autoReview: false }, logs });
+  const outcome = await h.dispatch({ sessionId: "sess-1", skills: ["alpha"] });
+  assert.equal(outcome.status, "dispatched", "复盘本身不受评审开关影响");
+  assert.equal(h.supervisorCalls.length, 0, "评审关着就一个督导都不许起（子进程也花 token）");
+  assert.equal(outcome.status, "dispatched");
+  const runDir = outcome.status === "dispatched" ? outcome.run.runDir : "";
+  const run = JSON.parse(fs.readFileSync(path.join(runDir, "run.json"), "utf8"));
+  assert.equal(run.status, "dispatched", "复盘 agent 还没写提案，状态由它自己推到 proposed");
+  assert.equal(
+    logs.some((line) => line.includes("自动评审已关") && line.includes(String(run.runId))),
+    true,
+    "必须留一句日志，否则人只会以为评审坏了",
+  );
 });
 
 test("总开关关闭：既不复盘也不起督导", async () => {

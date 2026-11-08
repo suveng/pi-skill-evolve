@@ -17,44 +17,75 @@ function workspace(): string {
   return path.join(cwd, ".pi", "evolution");
 }
 
-test("DEFAULT_CONFIG：采集与派生都默认关（clone 即静默）", () => {
-  assert.deepEqual([DEFAULT_CONFIG.enabled, DEFAULT_CONFIG.telemetry], [false, false]);
+test("DEFAULT_CONFIG：只开自动评审，采集 / 复盘 / 自动采纳都默认关", () => {
+  // 自动评审单独为 true 是安全的：enabled 关着时它永远走不到，不会替 clone 下来的人花 token
+  assert.deepEqual(
+    [DEFAULT_CONFIG.enabled, DEFAULT_CONFIG.telemetry, DEFAULT_CONFIG.autoReview, DEFAULT_CONFIG.autoApply],
+    [false, false, true, false],
+  );
 });
 
-test("loadConfig：没有 config.json 时全关，且不会顺手造文件", () => {
+test("loadConfig：没有 config.json 时只开自动评审，且不会顺手造文件", () => {
   const evolutionDir = workspace();
   const config = loadConfig(evolutionDir);
-  assert.deepEqual([config.enabled, config.telemetry], [false, false]);
+  assert.deepEqual(
+    [config.enabled, config.telemetry, config.autoReview, config.autoApply],
+    [false, false, true, false],
+  );
   assert.equal(fs.existsSync(configFile(evolutionDir)), false, "读配置不能有副作用");
 });
 
-test("normalizeConfig：空对象与缺字段都回落到全关", () => {
-  assert.deepEqual([normalizeConfig({}).enabled, normalizeConfig({}).telemetry], [false, false]);
+test("normalizeConfig：空对象与缺字段都回落到默认（评审开、其余关）", () => {
+  const empty = normalizeConfig({});
+  assert.deepEqual([empty.enabled, empty.telemetry, empty.autoReview, empty.autoApply], [false, false, true, false]);
   const onlyEnabled = normalizeConfig({ enabled: true });
-  assert.deepEqual([onlyEnabled.enabled, onlyEnabled.telemetry], [true, false], "只写 enabled 不等于打开采集");
+  assert.deepEqual(
+    [onlyEnabled.enabled, onlyEnabled.telemetry, onlyEnabled.autoApply],
+    [true, false, false],
+    "只写 enabled 不等于打开采集或自动采纳",
+  );
 });
 
-test("saveConfigSwitch：on 两个键都开，其余字段原样保留", async () => {
+test("normalizeConfig：autoReview / autoApply 写错类型回落到默认值", () => {
+  // 手改配置写成字符串是常事：坏值只回退那一个字段，不能让整份配置失效
+  const wrong = normalizeConfig({ autoReview: "off", autoApply: 1 });
+  assert.deepEqual([wrong.autoReview, wrong.autoApply], [true, false]);
+  const explicit = normalizeConfig({ autoReview: false, autoApply: true, enabled: true });
+  assert.deepEqual([explicit.enabled, explicit.autoReview, explicit.autoApply], [true, false, true]);
+});
+
+test("saveConfigSwitch：on 只开复盘 + 评审，采集与自动采纳保持原值", async () => {
   const evolutionDir = workspace();
   fs.mkdirSync(evolutionDir, { recursive: true });
   fs.writeFileSync(
     configFile(evolutionDir),
-    JSON.stringify({ enabled: false, telemetry: false, idleMs: 1_234, perSessionCap: 3 }),
+    JSON.stringify({ enabled: false, telemetry: true, autoReview: false, autoApply: false, idleMs: 1_234, perSessionCap: 3 }),
     "utf8",
   );
   const next = await saveConfigSwitch(evolutionDir, true, directQueue);
-  assert.deepEqual([next.enabled, next.telemetry, next.idleMs, next.perSessionCap], [true, true, 1_234, 3]);
+  assert.deepEqual(
+    [next.enabled, next.autoReview, next.telemetry, next.autoApply, next.idleMs, next.perSessionCap],
+    [true, true, true, false, 1_234, 3],
+  );
   const raw = JSON.parse(fs.readFileSync(configFile(evolutionDir), "utf8"));
-  assert.deepEqual([raw.enabled, raw.telemetry, raw.idleMs, raw.perSessionCap], [true, true, 1_234, 3]);
+  assert.deepEqual(
+    [raw.enabled, raw.autoReview, raw.telemetry, raw.autoApply, raw.idleMs, raw.perSessionCap],
+    [true, true, true, false, 1_234, 3],
+    "写盘内容必须与返回值一致：采集关着不能被 on 顺手打开，自动采纳更不能被打开",
+  );
 });
 
-test("saveConfigSwitch：off 两个键都关", async () => {
+test("saveConfigSwitch：off 四个键全关，去抖等其它字段原样保留", async () => {
   const evolutionDir = workspace();
   fs.mkdirSync(evolutionDir, { recursive: true });
-  fs.writeFileSync(configFile(evolutionDir), JSON.stringify({ enabled: true, telemetry: true, idleMs: 5_000 }), "utf8");
+  fs.writeFileSync(
+    configFile(evolutionDir),
+    JSON.stringify({ enabled: true, telemetry: true, autoReview: true, autoApply: true, idleMs: 5_000 }),
+    "utf8",
+  );
   await saveConfigSwitch(evolutionDir, false, directQueue);
   const raw = JSON.parse(fs.readFileSync(configFile(evolutionDir), "utf8"));
-  assert.deepEqual([raw.enabled, raw.telemetry, raw.idleMs], [false, false, 5_000]);
+  assert.deepEqual([raw.enabled, raw.telemetry, raw.autoReview, raw.autoApply, raw.idleMs], [false, false, false, false, 5_000]);
 });
 
 test("normalizeConfig：web 默认开 + 7788（采集/派生仍关），端口边界 1/65535 合法、整块类型不对回退", () => {
@@ -121,6 +152,23 @@ test("saveFlag：只改目标字段，其余键（含 web 块）原样保留", a
   assert.deepEqual([raw.enabled, raw.telemetry, raw.idleMs, raw.web], [false, true, 1_234, { enabled: true, port: 7799 }]);
 });
 
+test("saveFlag：autoReview / autoApply 各自独立，翻一个不动其它三个", async () => {
+  const evolutionDir = workspace();
+  fs.mkdirSync(evolutionDir, { recursive: true });
+  await saveFlag(evolutionDir, "enabled", true, directQueue);
+  await saveFlag(evolutionDir, "telemetry", true, directQueue);
+  await saveFlag(evolutionDir, "autoReview", false, directQueue);
+  const raw = JSON.parse(fs.readFileSync(configFile(evolutionDir), "utf8"));
+  assert.deepEqual(
+    [raw.enabled, raw.telemetry, raw.autoReview, raw.autoApply],
+    [true, true, false, false],
+    "关评审不能动复盘/采集，也不能顺手打开自动采纳",
+  );
+  await saveFlag(evolutionDir, "autoApply", true, directQueue);
+  const after = JSON.parse(fs.readFileSync(configFile(evolutionDir), "utf8"));
+  assert.deepEqual([after.enabled, after.telemetry, after.autoReview, after.autoApply], [true, true, false, true]);
+});
+
 test("saveFlag：两个字段互不牵连（先开复盘再关采集）", async () => {
   const evolutionDir = workspace();
   fs.mkdirSync(evolutionDir, { recursive: true });
@@ -132,15 +180,19 @@ test("saveFlag：两个字段互不牵连（先开复盘再关采集）", async 
   assert.deepEqual([after.enabled, after.telemetry], [true, false], "关采集不动复盘");
 });
 
-test("switchLine：采集与复盘分两段写，第四种组合带警告", () => {
-  const base = { idleMs: 1, maxRuntimeMs: 1, perSessionCap: 1 };
-  const off = "采集：关（不写遥测）｜复盘：关（不会派生 agent）";
-  const collectOnly = "采集：开（遥测写入 .pi/evolution/telemetry/）｜复盘：关（不会派生 agent）";
-  const both = "采集：开（遥测写入 .pi/evolution/telemetry/）｜复盘：开（会派生 agent）";
-  assert.equal(switchLine({ ...base, enabled: false, telemetry: false }), `${off}（/skill-evolve on 全开；collect / review 单独控制）`);
-  assert.equal(switchLine({ ...base, enabled: false, telemetry: true }), `${collectOnly}（/skill-evolve on 全开；collect / review 单独控制）`);
-  assert.equal(switchLine({ ...base, enabled: true, telemetry: true }), `${both}（/skill-evolve off 全关；collect / review 单独控制）`);
-  const warn = switchLine({ ...base, enabled: true, telemetry: false });
+test("switchLine：四个开关各写一段，只开复盘不采集时带警告", () => {
+  const base = { idleMs: 1, maxRuntimeMs: 1, perSessionCap: 1, autoReview: true, autoApply: false };
+  const hint = "（collect / dispatch / review / apply 单独控制；on / off 批量切）";
+  const allOff = "采集：关（不写遥测）｜复盘：关（不会派生 agent）｜评审：关（提案停在 proposed 等人工）｜采纳：关（auto 提案等人工批准）";
+  const collectOnly = "采集：开（遥测写入 .pi/evolution/telemetry/）｜复盘：关（不会派生 agent）｜评审：开（提案后自动起督导）｜采纳：关（auto 提案等人工批准）";
+  const both = "采集：开（遥测写入 .pi/evolution/telemetry/）｜复盘：开（会派生 agent）｜评审：开（提案后自动起督导）｜采纳：开（auto 提案自动落盘）";
+  assert.equal(
+    switchLine({ ...base, enabled: false, telemetry: false, autoReview: false }),
+    `${allOff}${hint}`,
+  );
+  assert.equal(switchLine({ ...base, enabled: false, telemetry: true }), `${collectOnly}${hint}`);
+  assert.equal(switchLine({ ...base, enabled: true, telemetry: true, autoApply: true }), `${both}${hint}`);
+  const warn = switchLine({ ...base, enabled: true, telemetry: false, autoReview: false });
   assert.equal(warn.startsWith("采集：关（不写遥测）｜复盘：开（会派生 agent）"), true);
   assert.equal(warn.includes(TELEMETRY_OFF_WARNING), true, "只开复盘不采集：必须带警告，不许静默");
 });

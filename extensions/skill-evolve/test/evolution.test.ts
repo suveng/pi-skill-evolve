@@ -35,6 +35,8 @@ interface Harness {
   /** 模拟某个子进程退出（收尸会顺手放锁） */
   exitChild: (index: number) => Promise<void>;
   children: FakeChild[];
+  /** 评审督导的起进程记录（断言「关着就一个都不起」用） */
+  supervisorCalls: { args: string[]; options: Record<string, unknown> }[];
   events: () => TelemetryEvent[];
   tick: (ms: number) => void;
 }
@@ -54,7 +56,7 @@ class FakeChild {
 }
 
 /**
- * 夹具的 config.json：生产默认全关（clone 即静默），所以每个用例都得显式打开；
+ * 夹具的 config.json：生产默认只开自动评审（采集 / 复盘 / 采纳关），所以每个用例都得显式打开；
  * 要验证「默认啥都不做」的用例直接自己建目录、不走这个 helper。
  */
 function writeConfig(dir: string, config: Record<string, unknown> = {}): void {
@@ -72,6 +74,7 @@ function harness(env: NodeJS.ProcessEnv = {}, config: Record<string, unknown> = 
   writeConfig(dir, config);
   let clock = NOW;
   const children: FakeChild[] = [];
+  const supervisorCalls: { args: string[]; options: Record<string, unknown> }[] = [];
   const spawnFn: SpawnLike = () => (children.push(new FakeChild()), children[children.length - 1] as unknown as SpawnedChild);
   const evo = createEvolution({
     cwd: dir,
@@ -83,12 +86,13 @@ function harness(env: NodeJS.ProcessEnv = {}, config: Record<string, unknown> = 
     spawnFn,
     // 假子进程的 pid 就是本进程 pid（锁回收要真 pid 才判得活）；单飞闸用注入的 alive 模拟「子进程已退出」
     alive: () => false,
-    supervisorSpawnFn: fakeSupervisorSpawn([]),
+    supervisorSpawnFn: fakeSupervisorSpawn(supervisorCalls),
   });
   return {
     dir,
     evo,
     children,
+    supervisorCalls,
     get spawns() {
       return children.length;
     },
@@ -216,7 +220,12 @@ test("tool_result 对齐不到 tool_call 时静默忽略（跨会话/子代理�
 test("statusText / reportText：无数据也不崩，且带上盲区提示", async () => {
   const h = harness();
   const status = await h.evo.statusText();
-  assert.equal(status.includes("采集：开（遥测写入 .pi/evolution/telemetry/）｜复盘：开（会派生 agent）"), true);
+  assert.equal(
+    status.includes(
+      "采集：开（遥测写入 .pi/evolution/telemetry/）｜复盘：开（会派生 agent）｜评审：开（提案后自动起督导）｜采纳：关（auto 提案等人工批准）",
+    ),
+    true,
+  );
   assert.equal(status.includes("锁：空闲"), true);
   const report = h.evo.reportText();
   assert.equal(report.includes("无曝光数据"), true);
@@ -248,29 +257,40 @@ test("reportText：按遥测给出曝光/加载/未命中", async () => {
   );
 });
 
-test("setEnabled：写回 config.json（两个键一起切）并立即生效", async () => {
+test("setEnabled：off 四个全关、on 只开复盘 + 评审（不动采集与自动采纳）", async () => {
   const h = harness();
   const message = await h.evo.setEnabled(false);
   assert.equal(message.includes("关闭"), true);
   const raw = JSON.parse(fs.readFileSync(path.join(h.dir, ".pi", "evolution", "config.json"), "utf8"));
-  assert.deepEqual([raw.enabled, raw.telemetry], [false, false]);
-  assert.equal((await h.evo.statusText()).includes("采集：关（不写遥测）｜复盘：关（不会派生 agent）"), true);
+  assert.deepEqual([raw.enabled, raw.telemetry, raw.autoReview, raw.autoApply], [false, false, false, false]);
+  assert.equal((await h.evo.statusText()).includes("采集：关（不写遥测）｜复盘：关（不会派生 agent）｜评审：关（提案停在 proposed 等人工）｜采纳：关（auto 提案等人工批准）"), true);
 
   await h.evo.setEnabled(true);
   const back = JSON.parse(fs.readFileSync(path.join(h.dir, ".pi", "evolution", "config.json"), "utf8"));
-  assert.deepEqual([back.enabled, back.telemetry], [true, true]);
+  // 用户定的语义：on = 复盘 + 评审两开；采集要另外 collect on，自动采纳要另外 apply on
+  assert.deepEqual([back.enabled, back.autoReview, back.telemetry, back.autoApply], [true, true, false, false]);
 });
 
-test("setFlag：只切一个字段，并把当前两个开关的状态写进回执", async () => {
-  const h = harness({}, { enabled: false, telemetry: false });
+test("setFlag：只切一个字段，并把当前四个开关的状态写进回执", async () => {
+  const h = harness({}, { enabled: false, telemetry: false, autoReview: false });
   const text = await h.evo.setFlag("telemetry", true);
-  // 回执要能看出「只开了采集、复盘还关着」，否则用户以为已经会花 token 了
-  assert.equal(text.includes("采集：开（遥测写入 .pi/evolution/telemetry/）｜复盘：关（不会派生 agent）"), true);
+  // 回执要能看出「只开了采集、复盘/评审还关着」，否则用户以为已经会花 token 了
+  assert.equal(
+    text.includes("采集：开（遥测写入 .pi/evolution/telemetry/）｜复盘：关（不会派生 agent）｜评审：关（提案停在 proposed 等人工）"),
+    true,
+  );
   const raw = JSON.parse(fs.readFileSync(path.join(h.dir, ".pi", "evolution", "config.json"), "utf8"));
   assert.deepEqual([raw.enabled, raw.telemetry], [false, true], "setFlag(telemetry) 不碰复盘");
   await h.evo.setFlag("enabled", true);
   const after = JSON.parse(fs.readFileSync(path.join(h.dir, ".pi", "evolution", "config.json"), "utf8"));
   assert.deepEqual([after.enabled, after.telemetry], [true, true], "setFlag(enabled) 不碰采集");
+  await h.evo.setFlag("autoReview", true);
+  const judged = JSON.parse(fs.readFileSync(path.join(h.dir, ".pi", "evolution", "config.json"), "utf8"));
+  assert.deepEqual(
+    [judged.enabled, judged.telemetry, judged.autoReview, judged.autoApply],
+    [true, true, true, false],
+    "review 只翻 autoReview：复盘/采集/采纳都不许跟着动",
+  );
 });
 
 test("没有 config.json 时默认全关：不派生、不落遥测", async () => {
@@ -288,19 +308,42 @@ test("没有 config.json 时默认全关：不派生、不落遥测", async () =
     supervisorSpawnFn: fakeSupervisorSpawn([]),
   });
   const status = await evo.statusText();
-  assert.equal(status.includes("采集：关（不写遥测）｜复盘：关（不会派生 agent）"), true);
+  assert.equal(
+    status.includes("采集：关（不写遥测）｜复盘：关（不会派生 agent）｜评审：开（提案后自动起督导）｜采纳：关（auto 提案等人工批准）"),
+    true,
+    "默认只开自动评审：enabled 关着时它永远走不到",
+  );
   evo.recordAdvertised({ sessionId: "s1", cwd: dir, prompt: "x", skills: [skill("a")] });
   evo.settle({ sessionId: "s1" });
   await settleAsync();
   assert.deepEqual(readTelemetry(dir), [], "默认关：遥测也不写");
 });
 
-test("telemetry 关着时只记开关状态不落盘（on 之后才采集）", async () => {
+test("autoReview 关着：退出前补发照跑，但不起督导（run 停在 proposed 等人工）", async () => {
+  const h = harness({}, { autoReview: false });
+  h.evo.recordAdvertised({ sessionId: "s1", cwd: h.dir, prompt: "第1轮", skills: [skill("a")] });
+  h.evo.settle({ sessionId: "s1" });
+  await settleAsync();
+  assert.equal(h.spawns, 1, "复盘本身照旧派发");
+  assert.equal(h.supervisorCalls.length, 0, "评审关着：派发路径也不许起督导");
+  await h.exitChild(0);
+
+  h.tick(1000);
+  h.evo.recordAdvertised({ sessionId: "s1", cwd: h.dir, prompt: "第2轮", skills: [skill("b")] });
+  h.evo.settle({ sessionId: "s1" });
+  await settleAsync();
+  h.evo.shutdown();
+  assert.equal(h.spawns, 2, "退出补发这条路径同样要派发复盘");
+  assert.equal(h.supervisorCalls.length, 0, "退出补发路径也要看评审开关");
+});
+
+test("telemetry 关着时只记开关状态不落盘（collect on 之后才采集）", async () => {
   const h = harness({}, { telemetry: false });
   h.evo.recordAdvertised({ sessionId: "s1", cwd: h.dir, prompt: "x", skills: [skill("a")] });
   await settleAsync();
   assert.deepEqual(h.events(), []);
-  await h.evo.setEnabled(true);
+  // 2026-11-08 起 on 不再顺带开采集：采集必须显式 collect on
+  await h.evo.setFlag("telemetry", true);
   h.evo.recordAdvertised({ sessionId: "s1", cwd: h.dir, prompt: "y", skills: [skill("a")] });
   await settleAsync();
   assert.equal(h.events().some((event) => event.kind === "advertised"), true, "on 之后同一会话就采集");

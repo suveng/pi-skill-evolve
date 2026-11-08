@@ -11,7 +11,13 @@
  */
 import type { AuditEntry } from "./audit-log.ts";
 import type { ConfigFlag } from "../config.ts";
-import { FLAG_EFFECT, FLAG_LABEL, TELEMETRY_OFF_WARNING, telemetryOffWhileEnabled } from "../flags.ts";
+import {
+  FLAG_EFFECT,
+  FLAG_FIELDS,
+  FLAG_LABEL,
+  TELEMETRY_OFF_WARNING,
+  telemetryOffWhileEnabled,
+} from "../flags.ts";
 import type { WebView } from "./data.ts";
 import { RANGE_KEYS, RANGE_LABEL, STATUS_OPTIONS, pageHref, type ListFilter, type ViewPage } from "./filter.ts";
 import { escapeHtml, formatStamp } from "./text.ts";
@@ -55,7 +61,8 @@ function runForm(ctx: ControlBarOptions): string {
 /**
  * 一个独立开关：状态 + 后果说明 + 「点下去会发生什么」的按钮。
  *
- * 两个开关各自 post 到 `/toggle?field=`（带上隐藏的 view，动作完回同一页），
+ * 四个开关各自 post 到 `/toggle?field=`（带上隐藏的 view，动作完回同一页），**不互相联动**：
+ * 想采集但不花钱、想评审但不自动采纳，都是常见中间态；要批量切只有命令 `on|off`。
  * 按钮文案写动作不写状态 —— 状态已经在左边那一段里，按钮再写一遍会让人把「当前值」看成「点了会变的值」。
  */
 function flagSwitch(field: ConfigFlag, on: boolean, ctx: ControlBarOptions): string {
@@ -73,11 +80,12 @@ function flagSwitch(field: ConfigFlag, on: boolean, ctx: ControlBarOptions): str
 }
 
 /**
- * 顶部控制条：两个独立开关（采集 / 复盘）+ 立即复盘 + 最后活动。
+ * 顶部控制条：四个独立开关（采集 / 复盘 / 评审 / 采纳）+ 立即复盘 + 最后活动。
  *
- * 两个开关不许合成一个「开启采集与派生」：采集只写本地文件，复盘才花 token，
- * 想采集样本但不想花钱是常见的中间状态，捆在一起就无路可走。
- * 只开复盘不采集时另给一行警告（见 flags.ts 的 TELEMETRY_OFF_WARNING），不许静默。
+ * 四个开关不许合成一个「开启全部」：采集只写本地文件，复盘与评审才花 token，
+ * 采纳直接改仓库文件 —— 想采集样本但不想花钱、想评审但不想自动落盘，都是常见的中间状态。
+ * 两类提醒不许静默：只开复盘不采集（见 flags.ts 的 TELEMETRY_OFF_WARNING）、
+ * 采纳关着但队列里积了 auto 提案（告诉人有多少条等人工批）。
  */
 export function renderControlBar(controls: WebControls, ctx: ControlBarOptions): string {
   const writable = ctx.canWrite === true && (ctx.csrf ?? "").length > 0;
@@ -85,12 +93,16 @@ export function renderControlBar(controls: WebControls, ctx: ControlBarOptions):
   const warn = telemetryOffWhileEnabled(controls.enabled, controls.telemetry)
     ? `<p class="warn">⚠ ${TELEMETRY_OFF_WARNING}</p>\n`
     : "";
+  const backlog =
+    !controls.autoApply && controls.pendingAuto > 0
+      ? `<p class="warn">⏸ ${controls.pendingAuto} 条 auto 提案待人工（自动采纳关着）</p>\n`
+      : "";
+  const switches = FLAG_FIELDS.map((field) => flagSwitch(field, controls[field], ctx)).join("\n");
   return `<div class="ctl">
-${flagSwitch("telemetry", controls.telemetry, ctx)}
-${flagSwitch("enabled", controls.enabled, ctx)}
+${switches}
 ${run}<span class="act">${escapeHtml(activityText(controls.lastActivityAt, ctx.now))}</span>
 </div>
-${warn}`;
+${warn}${backlog}`;
 }
 
 /** 状态下拉：先「全部」，再固定七个状态（顺序与 STATUS_OPTIONS 一致，别在渲染层重排） */

@@ -21,7 +21,8 @@ import { mergePendingRounds } from "./pending.ts";
 import { watchRunChild } from "./run-watch.ts";
 import { spawnReviewSupervisor, type SupervisorSpawn } from "./review-spawn.ts";
 import { guardBusy } from "./single-flight.ts";
-import { flushPendingSync, type PendingRounds, type ShutdownResult } from "./shutdown-dispatch.ts";
+import { drainPending } from "./drain-pending.ts";
+import type { PendingRounds } from "./shutdown-dispatch.ts";
 import type { MutationQueue, TelemetryWriter } from "./telemetry.ts";
 
 export interface DispatchInput {
@@ -241,6 +242,7 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
       dispatchCount.set(input.sessionId, (dispatchCount.get(input.sessionId) ?? 0) + 1);
       watchRunChild(child, { runDir, queue: deps.queue, log, onExit: releaseOnce });
       // 同一次派发再起一个独立督导：等 02-proposal.json → 另起评审进程 → 写 03-review.*
+      // 开关在这里现读（用户可能中途 review on/off）；关着时由 spawnReviewSupervisor 自己拒绝并记日志
       spawnReviewSupervisor({
         runDir,
         cwd: deps.cwd,
@@ -248,6 +250,7 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
         reviewModel: deps.reviewModel?.() ?? "inherit",
         spawnFn: deps.supervisorSpawnFn,
         sessionId: input.sessionId, telemetry: deps.telemetry, ...(deps.alive ? { alive: deps.alive } : {}),
+        autoReview: deps.config.autoReview,
         log,
       });
       return { status: "dispatched", run: { runId, runDir, pid: record.pid } };
@@ -261,39 +264,29 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
   const flushPending = (): number => {
     if (pending.size === 0) return 0;
     const at = now();
-    let dispatched = 0;
-    for (const item of [...pending.values()]) {
-      let result: ShutdownResult = "failed";
-      try {
-        result = flushPendingSync(
-          item,
-          {
-            evolutionDir: deps.evolutionDir,
-            cwd: deps.cwd,
-            promptTemplatePath: deps.promptTemplatePath,
-            maxRuntimeMs: deps.config.maxRuntimeMs,
-            telemetry: deps.telemetry,
-            env,
-            spawnFn: deps.spawnFn ?? (spawn as unknown as SpawnLike),
-            ...(deps.reviewModel ? { reviewModel: deps.reviewModel() } : {}),
-            ...(deps.supervisorSpawnFn ? { supervisorSpawnFn: deps.supervisorSpawnFn } : {}), ...(deps.alive ? { alive: deps.alive } : {}),
-            log,
-          },
-          at,
-        );
-      } catch (error) {
-        // flushPendingSync 自己已 try/catch；这里再兜一层，退出路径不允许抛
-        log(`[skill-evolve] 退出补发失败：${String(error)}`);
-      }
-      if (result === "dispatched") {
-        dispatched += 1;
-        lastDispatchAt.set(item.sessionId, at);
-        dispatchCount.set(item.sessionId, (dispatchCount.get(item.sessionId) ?? 0) + 1);
-      }
-      // 退出是最后一次机会：无论成败都从这里清掉，避免 shutdown 被调用两次时重复派发
-      pending.delete(item.sessionId);
+    const sessions = drainPending(
+      pending,
+      {
+        evolutionDir: deps.evolutionDir,
+        cwd: deps.cwd,
+        promptTemplatePath: deps.promptTemplatePath,
+        maxRuntimeMs: deps.config.maxRuntimeMs,
+        autoReview: deps.config.autoReview,
+        telemetry: deps.telemetry,
+        env,
+        spawnFn: deps.spawnFn ?? (spawn as unknown as SpawnLike),
+        ...(deps.reviewModel ? { reviewModel: deps.reviewModel } : {}),
+        ...(deps.supervisorSpawnFn ? { supervisorSpawnFn: deps.supervisorSpawnFn } : {}),
+        ...(deps.alive ? { alive: deps.alive } : {}),
+        log,
+      },
+      at,
+    );
+    for (const sessionId of sessions) {
+      lastDispatchAt.set(sessionId, at);
+      dispatchCount.set(sessionId, (dispatchCount.get(sessionId) ?? 0) + 1);
     }
-    return dispatched;
+    return sessions.length;
   };
 
   return { dispatch: run, flushPending };

@@ -17,11 +17,18 @@ import { enqueue, findItem, markDone, readQueue, takePending, type QueueItem, ty
 import { logLine } from "./logfile.ts";
 import { updateRunStatus } from "./runs.ts";
 import type { MutationQueue } from "./telemetry.ts";
+import type { EvolutionConfig } from "./config.ts";
 
 export interface ApplyToolsDeps {
   evolutionDir: string;
   cwd: string;
   queue: MutationQueue;
+  /**
+   * 开关读取（每次调用现读，**不许拿会话起点的缓存**）：
+   * `autoReview` 决定 proposed 的 run 要不要入队，`autoApply` 决定 auto 条要不要落盘 ——
+   * 用户中途 `/skill-evolve apply on`，下一轮扫描就该生效。
+   */
+  flags: () => Pick<EvolutionConfig, "autoReview" | "autoApply">;
   now?: () => number;
   log?: (msg: string) => void;
   git: GitRunner;
@@ -46,6 +53,8 @@ export interface ApplyTools {
 
 /** 只有评审通过（reviewed）的 run 才进队列；rejected / review_failed 一律不排 */
 const READY_STATUS = "reviewed";
+/** 评审关着时 run 停在这里：提案写完了、没人看过，仍然入队等人工批准 */
+const PROPOSED_STATUS = "proposed";
 const MAX_SCAN = 50;
 
 function readText(file: string): string | null {
@@ -101,6 +110,8 @@ export function createApplyTools(deps: ApplyToolsDeps): ApplyTools {
   };
 
   const enqueueReady: ApplyTools["enqueueReady"] = async () => {
+    // 开关现读（不缓存）：中途 review off 就新提案进队列标 reviewSkipped，review on 就恢复只收 reviewed
+    const autoReview = deps.flags().autoReview;
     const runsDir = path.join(deps.evolutionDir, "runs");
     let names: string[];
     try {
@@ -114,7 +125,10 @@ export function createApplyTools(deps: ApplyToolsDeps): ApplyTools {
       if (known.has(name)) continue;
       const runDir = path.join(runsDir, name);
       const raw = readRunJson(runDir);
-      if (!raw || raw.status !== READY_STATUS) continue;
+      if (!raw) continue;
+      // 评审关着时 run 停在 proposed：照旧入队（「待审批」页要看得见），只是标 reviewSkipped
+      const reviewSkipped = !autoReview && raw.status === PROPOSED_STATUS;
+      if (raw.status !== READY_STATUS && !reviewSkipped) continue;
       const meta = readProposalMeta(runDir);
       if (!meta) continue;
       const diffText = readText(path.join(runDir, meta.diffFile)) ?? "";
@@ -129,8 +143,10 @@ export function createApplyTools(deps: ApplyToolsDeps): ApplyTools {
         skill: meta.skill,
         targets: targetsOf(runDir, meta.skill, meta.type, graded.targets),
         proposalType: meta.type,
+        ...(reviewSkipped ? { reviewSkipped: true } : {}),
       });
       if (result.supersededBy) log(`[skill-evolve] ${name} 被更早的 pending 顶掉（${result.supersededBy}）`);
+      else if (reviewSkipped) log(`[skill-evolve] ${name} 入队（评审已关，待人工批准）：${graded.level}（${graded.reasons[0] ?? ""}）`);
       else log(`[skill-evolve] ${name} 入队：${graded.level}（${graded.reasons[0] ?? ""}）`);
       added += 1;
     }
@@ -180,7 +196,20 @@ export function createApplyTools(deps: ApplyToolsDeps): ApplyTools {
     return outcome;
   };
 
+  // 「自动采纳已关」只提示一次：settle 每轮都会调到，同一条不变就别反复刷日志
+  let applyOffNotice = "";
+
   const autoApplyPending: ApplyTools["autoApplyPending"] = async () => {
+    // 开关现读：`/skill-evolve apply on` 之后下一轮扫描就落盘，不用重开会话
+    if (!deps.flags().autoApply) {
+      const waiting = takePending(readQueue(deps.evolutionDir), "auto").length;
+      const notice = `[skill-evolve] 自动采纳已关：${waiting} 条 auto 提案在队列里等人工批准`;
+      if (waiting > 0 && notice !== applyOffNotice) {
+        log(notice);
+        applyOffNotice = notice;
+      }
+      return 0;
+    }
     let applied = 0;
     for (const item of takePending(readQueue(deps.evolutionDir), "auto")) {
       try {

@@ -30,6 +30,13 @@ export type SupervisorSpawn = (command: string, args: string[], options: Record<
 
 export interface SpawnSupervisorOptions {
   runDir: string;
+  /**
+   * 自动评审开关（`/skill-evolve review on|off`）：关着就不起督导，只留一句日志。
+   *
+   * 门禁放在这里而不是两个调用点各写一遍 —— dispatch 与退出补发是同一条语义，
+   * 分开写迟早有一边忘改。调用方必须在**真正下手前**现读配置（用户可能中途切换）。
+   */
+  autoReview: boolean;
   cwd: string;
   env?: NodeJS.ProcessEnv;
   /** "inherit" / 空 → 不传参，督导按默认模型评审 */
@@ -48,6 +55,10 @@ export interface SpawnSupervisorOptions {
 /** 返回 pid；被单飞闸挡住或起不来返回 null（只记日志，绝不抛到主会话） */
 export function spawnReviewSupervisor(options: SpawnSupervisorOptions): number | null {
   const runId = path.basename(options.runDir);
+  if (!options.autoReview) {
+    options.log?.(`[skill-evolve] 自动评审已关，run ${runId} 停在 proposed 待人工 /skill-evolve approve`);
+    return null;
+  }
   const occupant = guardBusy({
     evolutionDir: path.dirname(path.dirname(options.runDir)),
     sessionId: options.sessionId ?? runId,

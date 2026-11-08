@@ -17,6 +17,7 @@ test("督导用 node + --experimental-strip-types 起，参数里带 runDir", ()
     runDir: "/repo/.pi/evolution/runs/run-1",
     cwd: "/repo",
     env: {},
+    autoReview: true,
     spawnFn: (command, args, options) => {
       seen.calls.push({ command, args, options });
       return {
@@ -44,8 +45,8 @@ test("inherit 不追加 --model，显式模型追加在 runDir 之后", () => {
     explicitArgs.push(args);
     return { pid: 1 };
   };
-  spawnReviewSupervisor({ runDir: "/r", cwd: "/repo", env: {}, reviewModel: "inherit", spawnFn });
-  spawnReviewSupervisor({ runDir: "/r", cwd: "/repo", env: {}, reviewModel: "deepseek/deepseek-v3.2", spawnFn });
+  spawnReviewSupervisor({ runDir: "/r", cwd: "/repo", env: {}, autoReview: true, reviewModel: "inherit", spawnFn });
+  spawnReviewSupervisor({ runDir: "/r", cwd: "/repo", env: {}, autoReview: true, reviewModel: "deepseek/deepseek-v3.2", spawnFn });
   assert.deepEqual(inheritArgs[0], ["--experimental-strip-types", SUPERVISOR_SCRIPT, "/r"]);
   assert.deepEqual(explicitArgs[1], ["--experimental-strip-types", SUPERVISOR_SCRIPT, "/r", "deepseek/deepseek-v3.2"]);
 });
@@ -56,6 +57,7 @@ test("env 里去掉 SKILL_EVOLVE_CHILD，其他变量照旧带走", () => {
     runDir: "/r",
     cwd: "/repo",
     env: { SKILL_EVOLVE_CHILD: "1", PATH: "/usr/bin" },
+    autoReview: true,
     spawnFn: (_command, _args, options) => {
       env = options.env as NodeJS.ProcessEnv;
       return { pid: 1 };
@@ -65,12 +67,33 @@ test("env 里去掉 SKILL_EVOLVE_CHILD，其他变量照旧带走", () => {
   assert.equal(env.PATH, "/usr/bin");
 });
 
+test("自动评审关着：一个进程都不起，只留一句「停在 proposed」日志", () => {
+  const logs: string[] = [];
+  let spawned = 0;
+  const pid = spawnReviewSupervisor({
+    runDir: "/repo/.pi/evolution/runs/run-7",
+    cwd: "/repo",
+    env: {},
+    autoReview: false,
+    log: (msg) => logs.push(msg),
+    spawnFn: () => {
+      spawned += 1;
+      return { pid: 1 };
+    },
+  });
+  assert.equal(pid, null);
+  assert.equal(spawned, 0, "评审关着就不许起子进程（每份子进程都是 token）");
+  assert.equal(logs.length, 1);
+  assert.match(logs[0]!, /自动评审已关，run run-7 停在 proposed 待人工 \/skill-evolve approve/);
+});
+
 test("起不来只记日志返回 null，不抛", () => {
   const logs: string[] = [];
   const pid = spawnReviewSupervisor({
     runDir: "/r",
     cwd: "/repo",
     env: {},
+    autoReview: true,
     log: (msg) => logs.push(msg),
     spawnFn: () => {
       throw new Error("EMFILE");

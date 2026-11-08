@@ -24,9 +24,11 @@ export const SUBCOMMANDS: readonly SubcommandItem[] = [
   { value: "web", label: "web", description: "启动本机 Web 面板（127.0.0.1:7788，--port N 换端口，--once 不写进配置）" },
   { value: "config", label: "config", description: "选提案/评审模型（inherit = 跟随主会话）" },
   { value: "collect", label: "collect", description: "只开/关遥测采集（on|off；只写本地日志，不花 token）" },
-  { value: "review", label: "review", description: "只开/关自动复盘（on|off；会派生子进程，花 token）" },
-  { value: "on", label: "on", description: "采集与派生一起打开" },
-  { value: "off", label: "off", description: "采集与派生一起关闭" },
+  { value: "dispatch", label: "dispatch", description: "只开/关自动复盘（on|off；会派生子进程，花 token）" },
+  { value: "review", label: "review", description: "只开/关自动评审（on|off；提案后再起督导，再花一份 token）" },
+  { value: "apply", label: "apply", description: "只开/关自动采纳（on|off；auto 提案自动落盘，可回滚）" },
+  { value: "on", label: "on", description: "复盘与评审一起打开（不动采集，也不动自动采纳）" },
+  { value: "off", label: "off", description: "四个开关（采集/复盘/评审/采纳）一起关闭" },
 ];
 
 /** 补全：前缀命中就只给命中项；一个都没命中时给全量，避免用户看到空列表 */
@@ -78,8 +80,8 @@ export async function runCommand(args: string, evo: Evolution, target: CommandTa
   // 非 TUI 兜底：真正能交互选模型的路径在 index.ts（那里才拿得到 ctx.ui.select）
   if (command === "config") return runConfigCommand(null, evo.model, arg);
   if (command === "on" || command === "off") return evo.setEnabled(command === "on");
-  // `collect on|off` 只动 telemetry、`review on|off` 只动 enabled：缺参数或写错就给用法，一概不改配置
-  if (command === "collect" || command === "review") {
+  // `collect / dispatch / review / apply on|off` 各自只动一个字段：缺参数或写错就给用法，一概不改配置
+  if (command === "collect" || command === "dispatch" || command === "review" || command === "apply") {
     const field: ConfigFlag = COMMAND_FLAG[command];
     const value = arg === "on" ? true : arg === "off" ? false : null;
     if (value === null) {

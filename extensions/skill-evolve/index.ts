@@ -99,7 +99,7 @@ export default function skillEvolve(pi: ExtensionAPI): void {
         ...(port === undefined ? {} : { port }),
         onApprove: (runId) => evo.apply.approve(runId, false),
         onReject: (runId) => evo.apply.reject(runId),
-        onToggle: (field, next) => evo.setFlag(field, next), // 两个开关各自一个入口
+        onToggle: (field, next) => evo.setFlag(field, next), // 四个开关各自一个入口，网页点哪个只切哪个
         // 会话文件为空是允许的：派发时按「没有索引」处理，不会因为从网页点就少走一道
         onRunNow: () => evo.runNow({ sessionId: "web-panel" }),
         onCleanup: async (runId) => moveRunToTrash(evolutionDirOf(cwd), runId),
@@ -246,7 +246,7 @@ export default function skillEvolve(pi: ExtensionAPI): void {
 
   pi.registerCommand("skill-evolve", {
     description:
-      "技能进化：status 状态 / report 近 7 天报告（--week 周报） / run 立即复盘 / baseline 接受存量 P0 / audit 机械审计 / approve 采纳某条 run / queue 采纳队列 / web 网页面板（--port N 换端口，--once 不写配置） / selftest 评审必红自检 / config 选模型 / collect 只开采集遥测（不花 token） / review 只开自动复盘（花 token） / on / off 两个一起开关",
+      "技能进化：status 状态 / report 近 7 天报告（--week 周报） / run 立即复盘 / baseline 接受存量 P0 / audit 机械审计 / approve 采纳某条 run / queue 采纳队列 / web 网页面板（--port N 换端口，--once 不写配置） / selftest 评审必红自检 / config 选模型 / collect 只开采集遥测（不花 token） / dispatch 只开自动复盘（花 token） / review 只开自动评审（提案后再起督导，再花一份 token） / apply 只开自动采纳（auto 提案自动落盘） / on 复盘+评审两开（不动采集与采纳） / off 四个全关",
     getArgumentCompletions: (prefix) => matchSubcommand(prefix),
     handler: async (args, ctx) => {
       try {

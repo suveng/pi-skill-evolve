@@ -38,6 +38,8 @@ export interface ShutdownDeps {
   telemetry: TelemetryWriter;
   env: NodeJS.ProcessEnv;
   spawnFn: SpawnLike;
+  /** 自动评审开关（配置现读）：false 时不超督导，run 落成 proposed 等人工批准 */
+  autoReview: boolean;
   /** 评审模型（"inherit" 或 provider/model），退出补发这条路径同样要起督导 */
   reviewModel?: string;
   supervisorSpawnFn?: SupervisorSpawn;
@@ -147,6 +149,7 @@ export function flushPendingSync(item: PendingRounds, deps: ShutdownDeps, now: n
       rounds: item.rounds,
     });
     deps.log(`[skill-evolve] 退出前补发复盘：runId ${runId} pid ${childPid ?? "未知"}（合并 ${item.rounds} 轮）`);
+    // 退出前现读一次开关（与 dispatch 同一口径）：关着由 spawnReviewSupervisor 自己拒绝并记日志
     spawnReviewSupervisor({
       runDir,
       cwd: deps.cwd,
@@ -156,6 +159,7 @@ export function flushPendingSync(item: PendingRounds, deps: ShutdownDeps, now: n
       sessionId: item.sessionId,
       telemetry: deps.telemetry,
       sync: true,
+      autoReview: deps.autoReview,
       ...(deps.alive ? { alive: deps.alive } : {}),
       log: deps.log,
     });

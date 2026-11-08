@@ -411,10 +411,15 @@ test("approvals：缺 proposal / review 文件时给 null，不抛也不编造�
   assert.equal(row.createdAt, NOW);
 });
 
-test("collectControls：两个开关各读各的字段（采集关、复盘开这个中间态要能显示出来）", () => {
+test("collectControls：四个开关各读各的字段（采集关、复盘开这个中间态要能显示出来）", () => {
   const evolutionDir = workspace();
-  fs.writeFileSync(path.join(evolutionDir, "config.json"), JSON.stringify({ enabled: true, telemetry: false }), "utf8");
+  fs.writeFileSync(
+    path.join(evolutionDir, "config.json"),
+    JSON.stringify({ enabled: true, telemetry: false, autoReview: false, autoApply: true }),
+    "utf8",
+  );
   const controls = collectControls(evolutionDir);
-  assert.deepEqual([controls.telemetry, controls.enabled], [false, true]);
+  assert.deepEqual([controls.telemetry, controls.enabled, controls.autoReview, controls.autoApply], [false, true, false, true]);
+  assert.equal(controls.pendingAuto, 0, "队列空时没有待人工的 auto 条");
   assert.equal(controls.lastActivityAt, null, "没有任何遥测 / run 时最后活动为 null，不编造时间");
 });

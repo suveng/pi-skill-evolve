@@ -84,7 +84,7 @@ export interface Evolution {
   /** `/skill-evolve baseline`：把当前命中全部接受为存量；reset 清空清单 */
   acceptBaseline(mode: "accept" | "reset"): Promise<string>;
   setEnabled(enabled: boolean): Promise<string>;
-  /** `/skill-evolve collect|review` 与 Web 控制条：只切一个开关（另一个保持原值） */
+  /** `/skill-evolve collect|dispatch|review|apply` 与 Web 控制条：只切一个开关（其余三个保持原值） */
   setFlag(field: ConfigFlag, value: boolean): Promise<string>;
   /** 模型配置 + 必红自检（`/skill-evolve config|selftest`） */
   model: ModelTools;
@@ -144,6 +144,8 @@ export function createEvolution(deps: EvolutionDeps): Evolution {
     evolutionDir,
     cwd: deps.cwd,
     queue: deps.queue,
+    // 传 getter：review / apply 中途开关后，下一轮扫描立刻按新值走
+    flags: () => ({ autoReview: config.autoReview, autoApply: config.autoApply }),
     log,
     now,
     git: deps.git ?? createGitRunner(),
@@ -257,14 +259,14 @@ export function createEvolution(deps: EvolutionDeps): Evolution {
   const setEnabled = async (on: boolean): Promise<string> => {
     Object.assign(config, await saveConfigSwitch(evolutionDir, on, deps.queue));
     return on
-      ? `技能进化已打开（采集 + 自动复盘）：${configFile(evolutionDir)}（当前会话立即生效）`
-      : `技能进化已全部关闭（采集也停）：${configFile(evolutionDir)}（当前会话立即生效）`;
+      ? `技能进化已打开（自动复盘 + 自动评审；采集与自动采纳未改）：${configFile(evolutionDir)}（当前会话立即生效）`
+      : `技能进化已全部关闭（采集 / 复盘 / 评审 / 采纳）：${configFile(evolutionDir)}（当前会话立即生效）`;
   };
 
-  /** 只切一个开关：另一个保持原值（`collect` = telemetry、`review` = enabled） */
+  /** 只切一个开关：其余三个保持原值（`collect` = telemetry、`dispatch` = enabled、`review` = autoReview、`apply` = autoApply） */
   const setFlag = async (field: ConfigFlag, value: boolean): Promise<string> => {
     Object.assign(config, await saveFlag(evolutionDir, field, value, deps.queue));
-    return `${FLAG_LABEL[field]}已${value ? "开启" : "关闭"}：${configFile(evolutionDir)}（当前会话立即生效）\n${flagStateText(config.enabled, config.telemetry)}`;
+    return `${FLAG_LABEL[field]}已${value ? "开启" : "关闭"}：${configFile(evolutionDir)}（当前会话立即生效）\n${flagStateText(config)}`;
   };
 
   return {

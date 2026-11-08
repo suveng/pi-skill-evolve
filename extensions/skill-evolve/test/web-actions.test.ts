@@ -13,13 +13,26 @@ import { moveRunToTrash } from "../lib/web/trash.ts";
 
 const FORM = "application/x-www-form-urlencoded";
 
-function workspace(options: { enabled?: boolean; telemetry?: boolean; runs?: { runId: string; status: string }[] } = {}): string {
+function workspace(
+  options: {
+    enabled?: boolean;
+    telemetry?: boolean;
+    autoReview?: boolean;
+    autoApply?: boolean;
+    runs?: { runId: string; status: string }[];
+  } = {},
+): string {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "skill-evolve-webaction-"));
   const evolutionDir = path.join(cwd, ".pi", "evolution");
   fs.mkdirSync(path.join(evolutionDir, "runs"), { recursive: true });
   fs.writeFileSync(
     path.join(evolutionDir, "config.json"),
-    JSON.stringify({ enabled: options.enabled === true, telemetry: options.telemetry === true }),
+    JSON.stringify({
+      enabled: options.enabled === true,
+      telemetry: options.telemetry === true,
+      autoReview: options.autoReview === true,
+      autoApply: options.autoApply === true,
+    }),
     "utf8",
   );
   for (const run of options.runs ?? []) {
@@ -103,6 +116,32 @@ test("POST /toggle?field=telemetry：只动采集，不动复盘", async () => {
   }
 });
 
+test("POST /toggle?field=autoReview：只动评审，复盘 / 采集 / 采纳一个都不动", async () => {
+  const evolutionDir = workspace({ enabled: true, telemetry: true, autoReview: true });
+  const toggle = spyToggle("自动评审已关闭");
+  const panel = await open(evolutionDir, { onToggle: toggle.fn });
+  try {
+    assert.equal((await post(panel, "/toggle?field=autoReview", { csrf: panel.csrf })).status, 303);
+    assert.deepEqual(toggle.calls, [["autoReview", false]], "当前评审是开的 → 传 false，且 field 只能是 autoReview");
+    assert.equal(readAudit(evolutionDir).at(-1)?.field, "autoReview");
+  } finally {
+    await panel.close();
+  }
+});
+
+test("POST /toggle?field=autoApply：关着的采纳能被单独打开，且不动其它三个", async () => {
+  const evolutionDir = workspace({ enabled: true, telemetry: true, autoReview: true, autoApply: false });
+  const toggle = spyToggle("自动采纳已开启");
+  const panel = await open(evolutionDir, { onToggle: toggle.fn });
+  try {
+    assert.equal((await post(panel, "/toggle?field=autoApply", { csrf: panel.csrf })).status, 303);
+    assert.deepEqual(toggle.calls, [["autoApply", true]]);
+    assert.equal(readAudit(evolutionDir).at(-1)?.field, "autoApply");
+  } finally {
+    await panel.close();
+  }
+});
+
 test("POST /toggle 的 field 越界 / 缺失：400，不调回调，写一条带原值的 error 审计", async () => {
   const evolutionDir = workspace({ enabled: true, telemetry: true });
   const toggle = spyToggle("不该被调用");
@@ -110,7 +149,7 @@ test("POST /toggle 的 field 越界 / 缺失：400，不调回调，写一条带
   try {
     const wrong = await post(panel, "/toggle?field=propose", { csrf: panel.csrf });
     assert.equal(wrong.status, 400);
-    assert.match(await wrong.text(), /field 只认 telemetry \/ enabled/);
+    assert.match(await wrong.text(), /field 只认 telemetry \/ enabled \/ autoReview \/ autoApply/);
     const missing = await post(panel, "/toggle", { csrf: panel.csrf });
     assert.equal(missing.status, 400, "缺 field 不能猜一个默认值");
     assert.deepEqual(toggle.calls, [], "越界不放行到回调");

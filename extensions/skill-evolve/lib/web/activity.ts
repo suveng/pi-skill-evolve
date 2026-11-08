@@ -8,14 +8,21 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { loadConfig } from "../config.ts";
+import { readQueue } from "../queue.ts";
 import { listRuns } from "../runs.ts";
 import { readLogTail } from "../stale.ts";
 
 export interface WebControls {
   /** 采集遥测开关（config.telemetry，与 `/skill-evolve collect` 同一个字段）：只写本地 jsonl，不花 token */
   telemetry: boolean;
-  /** 自动复盘开关（config.enabled，与 `/skill-evolve review` 同一个字段）：派生子进程，花 token */
+  /** 自动复盘开关（config.enabled，与 `/skill-evolve dispatch` 同一个字段）：派生子进程，花 token */
   enabled: boolean;
+  /** 自动评审开关（config.autoReview，与 `/skill-evolve review` 同一个字段）：提案后再起一个督导子进程 */
+  autoReview: boolean;
+  /** 自动采纳开关（config.autoApply，与 `/skill-evolve apply` 同一个字段）：auto 提案自动落盘 */
+  autoApply: boolean;
+  /** 队列里还在 pending 的 auto 条数：采纳关着时页面要写「N 条 auto 提案待人工」 */
+  pendingAuto: number;
   lastActivityAt: number | null;
 }
 
@@ -53,5 +60,15 @@ export function collectControls(evolutionDir: string): WebControls {
     if (latest === null || run.dispatchedAt > latest) latest = run.dispatchedAt;
   }
   const config = loadConfig(evolutionDir);
-  return { telemetry: config.telemetry, enabled: config.enabled, lastActivityAt: latest };
+  const pendingAuto = readQueue(evolutionDir).filter(
+    (item) => item.status === "pending" && item.level === "auto",
+  ).length;
+  return {
+    telemetry: config.telemetry,
+    enabled: config.enabled,
+    autoReview: config.autoReview,
+    autoApply: config.autoApply,
+    pendingAuto,
+    lastActivityAt: latest,
+  };
 }

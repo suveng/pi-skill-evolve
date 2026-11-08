@@ -90,12 +90,11 @@ export interface StatusInput {
 }
 
 /**
- * 开关行：采集与复盘分两段写。两个字段本来就是独立的，合成一句「已开」只会让人以为只有一个总开关；
- * 第四种组合（只开复盘不采集）再补一句警告 —— 归因靠遥测，缺了就不能静默。
+ * 开关行：采集 / 复盘 / 评审 / 采纳四段各自写。四个字段本来就是独立的，合成一句「已开」只会让人
+ * 以为只有一个总开关；「只开复盘不采集」这个组合再补一句警告 —— 归因靠遥测，缺了就不能静默。
  */
 export function switchLine(config: EvolutionConfig): string {
-  const hint = config.enabled && config.telemetry ? "/skill-evolve off 全关" : "/skill-evolve on 全开";
-  const line = `${flagStateText(config.enabled, config.telemetry)}（${hint}；collect / review 单独控制）`;
+  const line = `${flagStateText(config)}（collect / dispatch / review / apply 单独控制；on / off 批量切）`;
   return telemetryOffWhileEnabled(config.enabled, config.telemetry) ? `${line} ⚠ ${TELEMETRY_OFF_WARNING}` : line;
 }
 
@@ -111,7 +110,7 @@ export function renderStatus(input: StatusInput): string {
   return [
     "技能进化 · 状态",
     `  ${switchLine(config)}`,
-    `  配置：${input.configPath}（不存在即默认全关）· 遥测目录：${input.telemetryDir}`,
+    `  配置：${input.configPath}（不存在即默认只开自动评审，采集 / 复盘 / 采纳关）· 遥测目录：${input.telemetryDir}`,
     `  去抖 ${Math.round(config.idleMs / 1000)}s · 单 run 上限 ${Math.round(config.maxRuntimeMs / 60_000)}min · 单会话派生上限 ${config.perSessionCap}`,
     `  锁：${lockText}`,
     ...webPanelLine(input.webPanel),

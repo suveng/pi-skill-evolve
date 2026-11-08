@@ -262,37 +262,60 @@ test("待审批页不做 5 秒自刷新：刷新会打断正在点的按钮", ()
   assert.equal(renderPage(emptyState(), "approvals").includes('http-equiv="refresh"'), false);
 });
 
-test("控制条：采集与复盘是两个独立开关，各自 post 到 /toggle?field=", () => {
+test("控制条：四个独立开关，各自 post 到 /toggle?field=", () => {
   const html = renderPage(emptyState(), "pending", {
-    controls: { telemetry: true, enabled: false, lastActivityAt: null },
+    controls: { telemetry: true, enabled: false, autoReview: false, autoApply: false, pendingAuto: 0, lastActivityAt: null },
     csrf: "tok",
     canWrite: true,
   });
   assert.match(html, /采集遥测：开/);
   assert.match(html, /自动复盘：关/);
-  // 两个按钮各自打自己的字段：一个按钮同时翻两个，就回到了「捆在一起」的老问题
-  assert.equal(html.includes('action="/toggle?field=telemetry"'), true);
-  assert.equal(html.includes('action="/toggle?field=enabled"'), true);
+  assert.match(html, /自动评审：关/);
+  assert.match(html, /自动采纳：关/);
+  // 四个按钮各自打自己的字段：一个按钮同时翻两个，就回到了「捆在一起」的老问题
+  for (const field of ["telemetry", "enabled", "autoReview", "autoApply"]) {
+    assert.equal(html.includes(`action="/toggle?field=${field}"`), true, field);
+  }
   assert.match(html, /只写本地日志，不花 token/);
   assert.match(html, /会派生子进程，花 token/);
   assert.match(html, /关闭采集遥测/, "按钮文案是动作（当前开 → 关闭），不是状态的复读");
   assert.match(html, /开启自动复盘/);
+  assert.match(html, /再起一个督导子进程，再花一份 token/);
+  assert.match(html, /改 \.pi\/skills\/ 与 \.cursor\/ 文件，可回滚/);
   assert.equal(html.includes("复盘在跑但采集关着"), false, "两个状态正常时不带警告");
   // 只读（没 csrf）时两个开关只显示状态，不渲染表单
-  const readonly = renderPage(emptyState(), "pending", { controls: { telemetry: false, enabled: false, lastActivityAt: null } });
+  const readonly = renderPage(emptyState(), "pending", {
+    controls: { telemetry: false, enabled: false, autoReview: true, autoApply: true, pendingAuto: 2, lastActivityAt: null },
+  });
   assert.match(readonly, /采集遥测：关/);
   assert.equal(readonly.includes("/toggle?field="), false);
 });
 
+test("控制条：自动采纳关着且队列有 auto 条时写「N 条待人工」，关了预警就消失", () => {
+  const backlog = renderPage(emptyState(), "pending", {
+    controls: { telemetry: true, enabled: true, autoReview: true, autoApply: false, pendingAuto: 3, lastActivityAt: null },
+    csrf: "tok",
+    canWrite: true,
+  });
+  assert.match(backlog, /⏸ 3 条 auto 提案待人工（自动采纳关着）/);
+  // 采纳打开后那些条会被自动消化，提醒必须跟着消失（否则永远挂着一条假待办）
+  const cleared = renderPage(emptyState(), "pending", {
+    controls: { telemetry: true, enabled: true, autoReview: true, autoApply: true, pendingAuto: 3, lastActivityAt: null },
+    csrf: "tok",
+    canWrite: true,
+  });
+  assert.equal(cleared.includes("条 auto 提案待人工"), false);
+});
+
 test("控制条：只开复盘不采集时给一行警告，两个都开后警告消失", () => {
   const warn = renderPage(emptyState(), "pending", {
-    controls: { telemetry: false, enabled: true, lastActivityAt: null },
+    controls: { telemetry: false, enabled: true, autoReview: true, autoApply: false, pendingAuto: 0, lastActivityAt: null },
     csrf: "tok",
     canWrite: true,
   });
   assert.match(warn, /<p class="warn">⚠ 复盘在跑但采集关着：归因只能靠原始会话，加载率不可得<\/p>/);
   const ok = renderPage(emptyState(), "pending", {
-    controls: { telemetry: true, enabled: true, lastActivityAt: null },
+    controls: { telemetry: true, enabled: true, autoReview: true, autoApply: false, pendingAuto: 0, lastActivityAt: null },
     csrf: "tok",
     canWrite: true,
   });

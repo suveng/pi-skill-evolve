@@ -51,6 +51,8 @@ function tools(fixture: Fixture) {
     git: () => ({ code: 0, out: "" }),
     loadDiagnostics: () => [],
     runMdCheck: () => ({ code: 0, output: "" }),
+    // 开关默认全开：拒绝侧的用例只关心队列/run 状态，不该被自动采纳开关挡住
+    flags: () => ({ autoReview: true, autoApply: true }),
   });
 }
 

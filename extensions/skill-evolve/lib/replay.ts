@@ -203,6 +203,8 @@ export async function runReplay(options: ReplayOptions): Promise<ReplayOutcome> 
       evolutionDir,
       cwd: options.cwd,
       queue,
+      // 复演不做开关判定：它本来就是人手动触发的全链路
+      flags: () => ({ autoReview: true, autoApply: true }),
       now,
       log,
       git,
