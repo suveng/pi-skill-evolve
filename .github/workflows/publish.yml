@@ -1,0 +1,31 @@
+name: publish
+
+# 只在打 tag 时发布：v0.1.0 → 发布到 npm 的 0.1.0
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write   # npm provenance 需要
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - name: 单测（不含宿主包依赖，523 条）
+        run: node --experimental-strip-types --test extensions/skill-evolve/test/*.test.ts
+      - name: 校验 tag 与 package.json 版本一致
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          [ "$tag" = "$pkg" ] || { echo "tag $tag != package.json $pkg"; exit 1; }
+      - name: 发布到 npm（带 provenance）
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

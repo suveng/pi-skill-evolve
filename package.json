@@ -2,14 +2,35 @@
   "name": "pi-skill-evolve",
   "version": "0.1.0",
   "description": "技能进化：采集会话中的技能曝光/加载，异步复盘、生成改进提案并独立评审，附本机 Web 管理面板",
-  "keywords": ["pi-package", "pi-extension", "skills"],
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "skills"
+  ],
   "license": "MIT",
   "type": "module",
   "pi": {
-    "extensions": ["./extensions/skill-evolve/index.ts"]
+    "extensions": [
+      "./extensions/skill-evolve/index.ts"
+    ]
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/suveng/pi-skill-evolve.git"
+  },
+  "homepage": "https://github.com/suveng/pi-skill-evolve#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "extensions",
+    "README.md",
+    "CHANGELOG.md"
+  ]
 }
