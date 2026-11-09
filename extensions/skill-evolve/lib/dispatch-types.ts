@@ -51,7 +51,7 @@ export type DispatchOutcome =
   | { status: "dispatched"; run: DispatchedRun }
   | {
       status: "skipped";
-      why: "disabled" | "cap" | "lock" | "lock-error" | "selftest-failed" | "busy";
+      why: "disabled" | "cap" | "lock" | "lock-error" | "selftest-failed" | "busy" | "pi-not-found";
       ownerPid: number | null;
     }
   | { status: "superseded"; rounds: number }

@@ -6,10 +6,38 @@
  */
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
-/** pi 不能靠 PATH 找：GUI / 非交互环境里 PATH 常常没有它 */
-export const DEFAULT_PI_BIN = "/home/suveng/.pi/agent/bin/pi";
+/**
+ * 兜底 pi 路径：按**当前用户 home** 拼，绝不写死某个人的家目录。
+ *
+ * 2026-11-09 事故：v0.1.10 把 Linux 家目录 `/home/suveng/.pi/agent/bin/pi` 写成常量，
+ * 换到 macOS 上 spawn 直接 ENOENT；而 spawn 的 error 事件是**异步** emit 的，
+ * 那一刻还没人挂 listener，于是 uncaughtException 把整个 pi 进程打死。
+ */
+export const DEFAULT_PI_BIN = path.join(os.homedir(), ".pi", "agent", "bin", "pi");
+
+/** 可执行文件判定：不存在 / 无执行权限 / 是目录都算「不可用」，一律不抛 */
+export function isExecutableFile(candidate: string): boolean {
+  try {
+    if (!fs.statSync(candidate).isFile()) return false;
+    fs.accessSync(candidate, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 在 PATH 里找 pi：GUI / 非交互启动的 pi 常常带着不完整的 PATH，所以只作第二选择 */
+function findOnPath(name: string, env: NodeJS.ProcessEnv, exists: (candidate: string) => boolean): string | null {
+  const dirs = (env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    const candidate = path.join(dir, name);
+    if (exists(candidate)) return candidate;
+  }
+  return null;
+}
 
 export interface SpawnedChild {
   pid?: number;
@@ -20,8 +48,23 @@ export interface SpawnedChild {
 
 export type SpawnLike = (command: string, args: string[], options: Record<string, unknown>) => SpawnedChild;
 
-export function resolvePiBin(env: NodeJS.ProcessEnv = process.env): string {
-  return env.SKILL_EVOLVE_PI_BIN || env.PI_SUBAGENT_PI_BINARY || DEFAULT_PI_BIN;
+export interface ResolvePiBinOptions {
+  /** 单测注入的存在性判定（默认查真磁盘） */
+  exists?: (candidate: string) => boolean;
+  /** 可执行文件名（Windows 上是 pi.cmd / pi.exe，默认 "pi"） */
+  name?: string;
+}
+
+/**
+ * pi 路径解析顺序：显式环境变量 → home 下的 `.pi/agent/bin/pi` → PATH 里的 `pi` → 兜底常量。
+ * 返回的路径**不保证存在**（调用方要用 isExecutableFile 先验一次，别直接 spawn）。
+ */
+export function resolvePiBin(env: NodeJS.ProcessEnv = process.env, options: ResolvePiBinOptions = {}): string {
+  const explicit = env.SKILL_EVOLVE_PI_BIN || env.PI_SUBAGENT_PI_BINARY;
+  if (explicit) return explicit;
+  const exists = options.exists ?? isExecutableFile;
+  if (exists(DEFAULT_PI_BIN)) return DEFAULT_PI_BIN;
+  return findOnPath(options.name ?? "pi", env, exists) ?? DEFAULT_PI_BIN;
 }
 
 /** 复盘子进程的日志文件名（落在 run 目录下，与 run.json 同级） */

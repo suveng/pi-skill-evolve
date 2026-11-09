@@ -13,7 +13,7 @@ import { acquireLockSync, releaseLockSync, writeOwnerSync } from "./lock.ts";
 import { buildPrompt, readPromptTemplateSync } from "./prompt.ts";
 import { spawnReviewSupervisor, type SupervisorSpawn } from "./review-spawn.ts";
 import { guardBusy } from "./single-flight.ts";
-import { CHILD_LOG, uniqueRunId, sessionHashOf, resolvePiBin, spawnDetached, type SpawnLike } from "./spawn-plan.ts";
+import { CHILD_LOG, isExecutableFile, uniqueRunId, sessionHashOf, resolvePiBin, spawnDetached, type SpawnLike } from "./spawn-plan.ts";
 import { writeRunRecordSync, type RunRecord } from "./runs.ts";
 import { writeSessionIndexSync } from "./session-index.ts";
 import type { TelemetryWriter } from "./telemetry.ts";
@@ -46,6 +46,8 @@ export interface ShutdownDeps {
   supervisorSpawnFn?: SupervisorSpawn;
   /** pid 存活判定（全局单飞闸用；单测注入，测试里不起真子进程） */
   alive?: (pid: number) => boolean;
+  /** pi 可执行文件判定（默认查真磁盘；单测注入避开机器差异） */
+  piBinExists?: (candidate: string) => boolean;
   log: (msg: string) => void;
 }
 
@@ -87,6 +89,23 @@ export function flushPendingSync(item: PendingRounds, deps: ShutdownDeps, now: n
     log: deps.log,
   });
   if (occupant) return "skipped";
+
+  // 退出补发同样先验 pi 可执行：spawn 的 ENOENT 是异步 emit，没有 listener 就直接 uncaughtException，
+  // 那会把「正常退出」变成「崩溃退出」（2026-11-09 写死路径事故就是这条路径炸的）
+  const piBin = resolvePiBin(deps.env);
+  if (!(deps.piBinExists ?? isExecutableFile)(piBin)) {
+    deps.telemetry.appendSync({
+      kind: "skipped",
+      ts: now,
+      sessionId: item.sessionId,
+      why: "pi-not-found",
+      trigger: "shutdown",
+      ownerPid: null,
+      rounds: item.rounds,
+    });
+    deps.log(`[skill-evolve] 退出补发放弃：找不到可执行的 pi（${piBin}）`);
+    return "skipped";
+  }
 
   const runId = uniqueRunId(deps.evolutionDir, item.sessionId, now);
   const runDir = path.join(deps.evolutionDir, "runs", runId);
@@ -150,11 +169,15 @@ export function flushPendingSync(item: PendingRounds, deps: ShutdownDeps, now: n
       dispatchedAt: now,
       coverage: record.coverage,
     });
-    const child = spawnDetached(deps.spawnFn, resolvePiBin(deps.env), ["-p", "--no-session", "-ns", prompt], {
+    const child = spawnDetached(deps.spawnFn, piBin, ["-p", "--no-session", "-ns", prompt], {
       cwd: deps.cwd,
       env: { ...deps.env, SKILL_EVOLVE_CHILD: "1" },
       // 退出前补发这条路径最容易“静默失败”：日志落盘才知道子进程到底起没起来
       logFile: path.join(runDir, CHILD_LOG),
+    });
+    // 异步 emit 的 error 没 listener 会直接炸进程；主进程马上要退出，这里只求不把退出变成崩溃
+    child.once("error", (error) => {
+      deps.log(`[skill-evolve] 退出补发子进程启动失败：${String(error)}`);
     });
     childPid = child.pid ?? null;
 

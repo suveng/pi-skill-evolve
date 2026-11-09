@@ -26,6 +26,8 @@ export interface DrainPendingOptions {
   reviewModel?: () => string;
   supervisorSpawnFn?: SupervisorSpawn;
   alive?: (pid: number) => boolean;
+  /** pi 可执行文件判定（dispatch 注入假 spawnFn 时直接传「都在」，单测不碰真磁盘） */
+  piBinExists?: (candidate: string) => boolean;
   log: (msg: string) => void;
 }
 
@@ -49,6 +51,7 @@ export function drainPending(pending: Map<string, PendingRounds>, options: Drain
           ...(options.reviewModel ? { reviewModel: options.reviewModel() } : {}),
           ...(options.supervisorSpawnFn ? { supervisorSpawnFn: options.supervisorSpawnFn } : {}),
           ...(options.alive ? { alive: options.alive } : {}),
+          ...(options.piBinExists ? { piBinExists: options.piBinExists } : {}),
           log: options.log,
         },
         at,

@@ -16,7 +16,7 @@ import { acquireLock, releaseLock, writeOwnerSync } from "./lock.ts";
 import { buildPrompt, readPromptTemplateSync } from "./prompt.ts";
 import { writeRunRecord } from "./runs.ts";
 import { writeSessionIndex } from "./session-index.ts";
-import { CHILD_LOG, resolvePiBin, spawnDetached, uniqueRunId, sessionHashOf } from "./spawn-plan.ts";
+import { CHILD_LOG, isExecutableFile, resolvePiBin, spawnDetached, uniqueRunId, sessionHashOf } from "./spawn-plan.ts";
 import { mergePendingRounds } from "./pending.ts";
 import { watchRunChild } from "./run-watch.ts";
 import { spawnReviewSupervisor } from "./review-spawn.ts";
@@ -160,6 +160,23 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
     lockHeld = true;
 
     try {
+      // 先验 pi 真的可执行：spawn 的 ENOENT 是**异步** emit 的，早于收尸 listener 挂载，
+      // 会把整个 pi 进程 uncaughtException 打死（2026-11-09 写死路径事故）。宁可不派，也不炸宿主。
+      // 注入了 spawnFn = 单测/嵌入式宿主，路径由调用方自负，这里不做磁盘校验。
+      const piBin = resolvePiBin(env);
+      if (!deps.spawnFn && !isExecutableFile(piBin)) {
+        log(`[skill-evolve] 未派生：找不到可执行的 pi（${piBin}）。设 SKILL_EVOLVE_PI_BIN 或先装好 pi`);
+        deps.telemetry.append({
+          kind: "skipped",
+          sessionId: input.sessionId,
+          why: "pi-not-found",
+          ownerPid: lock.owner?.pid ?? null,
+          trigger,
+        });
+        await releaseOnce();
+        return { status: "skipped", why: "pi-not-found", ownerPid: lock.owner?.pid ?? null };
+      }
+
       const indexFile = path.join(runDir, "00-session", "index.json");
       const sessionFile = input.sessionFile ?? carried?.sessionFile;
       let evidenceMode: RunRecord["evidenceMode"] = "telemetry-only";
@@ -199,13 +216,17 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
         dispatchedAt: at,
         coverage,
       });
-      const piBin = resolvePiBin(env);
       const spawnFn: SpawnLike = deps.spawnFn ?? (spawn as unknown as SpawnLike);
       const child = spawnDetached(spawnFn, piBin, ["-p", "--no-session", "-ns", prompt], {
         cwd: deps.cwd,
         env: { ...env, SKILL_EVOLVE_CHILD: "1" },
         // stdout+stderr 落到 run 目录：子进程怎么死的，只有这份日志答得出来
         logFile: path.join(runDir, CHILD_LOG),
+      });
+      // 兜底 listener：spawn 仍可能失败（权限、架构不匹配），没 listener 的 error 事件在 Node 里
+      // 会直接抛成 uncaughtException。真正的收尸仍由 watchRunChild 负责，这里只保证不炸宿主。
+      child.once("error", (error) => {
+        log(`[skill-evolve] 复盘子进程启动失败：${String(error)}`);
       });
 
       record.pid = child.pid ?? null;
@@ -258,6 +279,8 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
         ...(deps.reviewModel ? { reviewModel: deps.reviewModel } : {}),
         ...(deps.supervisorSpawnFn ? { supervisorSpawnFn: deps.supervisorSpawnFn } : {}),
         ...(deps.alive ? { alive: deps.alive } : {}),
+        // 注入了 spawnFn = 单测/嵌入式宿主：路径由调用方自负，退出补发也不做磁盘校验
+        ...(deps.spawnFn ? { piBinExists: () => true } : {}),
         log,
       },
       at,

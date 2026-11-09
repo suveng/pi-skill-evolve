@@ -132,6 +132,17 @@ test("纯函数：pi 路径优先级、runId 形态、去抖判据", () => {
   assert.equal(shouldDebounce(NOW - 90_000, NOW, 90_000), false);
 });
 
+test("纯函数：pi 路径在陌生机器上也解得出来（不写死别人的家目录）", () => {
+  // 2026-11-09 事故回归：常量必须跟当前用户 home 走，且 home 不存在时退到 PATH
+  assert.equal(DEFAULT_PI_BIN, path.join(os.homedir(), ".pi", "agent", "bin", "pi"));
+  const none = (): boolean => false;
+  assert.equal(resolvePiBin({}, { exists: none }), DEFAULT_PI_BIN);
+  const onPath = path.join("/opt/node/bin", "pi");
+  assert.equal(resolvePiBin({ PATH: ["/x", path.dirname(onPath)].join(path.delimiter) }, { exists: (p) => p === onPath }), onPath);
+  // home 下的优先于 PATH
+  assert.equal(resolvePiBin({ PATH: path.dirname(onPath) }, { exists: () => true }), DEFAULT_PI_BIN);
+});
+
 test("buildPrompt：带会话原文/索引/run 目录，并写清覆盖轮数", () => {
   const full = buildPrompt({ template: "模板", sessionFile: "/s.jsonl", indexFile: "/i.json", runDir: "/r", sessionId: "s1", skills: ["a", "b"], dispatchedAt: NOW });
   assert.equal(full.includes("会话原文：/s.jsonl"), true);
