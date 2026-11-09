@@ -14,7 +14,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { acquireLock, acquireLockSync, isPidAlive, lockDir, readOwnerSync, releaseLock, releaseLockSync, shouldReclaim, writeOwnerSync } from "../lib/lock.ts";
+import { acquireLock, acquireLockSync, isPidAlive, lockDir, readOwnerSync, releaseLock, releaseLockSync, shouldReclaim, withLock, writeOwnerSync } from "../lib/lock.ts";
 
 const MAX = 20 * 60_000;
 const NOW = 1_760_000_000_000;
@@ -135,4 +135,41 @@ test("writeOwnerSync：把持有者换成子进程 pid，供 status 与孤儿判
   assert.equal(writeOwnerSync(dir, { pid: 4321, ts: NOW + 1, sessionId: "s1" }), true);
   assert.deepEqual(readOwnerSync(lockDir(dir)), { pid: 4321, ts: NOW + 1, sessionId: "s1" });
   releaseLockSync(dir);
+});
+
+test("lockDir：不同名字的锁互不干扰（派发锁被占不影响督导锁）", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "skill-evolve-lock-name-"));
+  const base = { evolutionDir: dir, owner: { pid: process.pid, ts: NOW }, maxRuntimeMs: MAX, now: () => NOW };
+  const dispatch = await acquireLock(base);
+  assert.equal(dispatch.ok, true);
+  const supervisor = await acquireLock({ ...base, name: "supervisor" });
+  assert.equal(supervisor.ok, true, "另一个名字的锁应当能独立抢到");
+  assert.equal(fs.existsSync(path.join(dir, "locks", "supervisor")), true);
+  await releaseLock(dir, () => {}, "supervisor");
+  await releaseLock(dir);
+  assert.equal(fs.existsSync(path.join(dir, "locks")), true, "locks 父目录留着，空的子目录删干净");
+  assert.deepEqual(fs.readdirSync(path.join(dir, "locks")), []);
+});
+
+test("withLock：忙时直接返回 why=busy 不执行；跑完一定释放（抛错也释放）", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "skill-evolve-withlock-"));
+  const options = { evolutionDir: dir, name: "apply" as const, owner: { pid: process.pid, ts: NOW }, maxRuntimeMs: MAX, now: () => NOW };
+  const first = await withLock(options, async () => {
+    const inner = await withLock(options, () => "不该执行");
+    assert.equal(inner.ok, false);
+    assert.equal(inner.why, "busy");
+    return "done";
+  });
+  assert.equal(first.ok, true);
+  assert.equal(first.value, "done");
+  // 异常要往上抛（调用方自己决定记什么日志），但锁必须已经放掉
+  await assert.rejects(
+    withLock(options, () => {
+      throw new Error("模拟采纳中途崩");
+    }),
+    /模拟采纳中途崩/,
+  );
+  assert.equal(fs.existsSync(path.join(dir, "locks", "apply")), false, "抛错也要释放，否则下次永远 busy");
+  const again = await withLock(options, () => "又抢到了");
+  assert.equal(again.ok, true);
 });

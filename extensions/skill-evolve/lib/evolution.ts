@@ -97,7 +97,7 @@ export interface Evolution {
    * 重启 / `/reload` 后的接手：补状态、重挂督导师（详见 lib/recover.ts）。
    * 返回本次做了什么，面板与日志都靠它告诉用户「后台任务没丢」。
    */
-  recover(): Promise<RecoveryAction[]>;
+  recover(sessionId?: string): Promise<RecoveryAction[]>;
   /** 最近一次恢复的结果（面板可视化用；本进程内有效） */
   lastRecovery(): RecoveryAction[];
 }
@@ -283,7 +283,7 @@ export function createEvolution(deps: EvolutionDeps): Evolution {
    * 同步抛错也在这里吞：会话起点不能被恢复流程搞挂。
    */
   let lastActions: RecoveryAction[] = [];
-  const recover = async (): Promise<RecoveryAction[]> => {
+  const recover = async (sessionId?: string): Promise<RecoveryAction[]> => {
     try {
       lastActions = await recoverRuns({
         evolutionDir,
@@ -295,6 +295,7 @@ export function createEvolution(deps: EvolutionDeps): Evolution {
         reviewModel: modelTools.reviewModel,
         ...(deps.alive ? { alive: deps.alive } : {}),
         ...(deps.supervisorSpawnFn ? { spawnSupervisor: deps.supervisorSpawnFn } : {}),
+        ...(sessionId ? { sessionId } : {}),
         log,
       });
     } catch (error) {

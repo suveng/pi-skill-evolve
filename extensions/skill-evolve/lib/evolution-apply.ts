@@ -14,6 +14,7 @@ import { classifyChange } from "./classify-action.ts";
 import { captureGate0, saveGate0, type GitRunner } from "./gate0.ts";
 import { buildPrunePlan, renderPrunePlan } from "./prune-plan.ts";
 import { enqueue, findItem, markDone, readQueue, takePending, type QueueItem, type QueueStatus } from "./queue.ts";
+import { withLock } from "./lock.ts";
 import { logLine } from "./logfile.ts";
 import { updateRunStatus } from "./runs.ts";
 import type { MutationQueue } from "./telemetry.ts";
@@ -56,6 +57,8 @@ const READY_STATUS = "reviewed";
 /** 评审关着时 run 停在这里：提案写完了、没人看过，仍然入队等人工批准 */
 const PROPOSED_STATUS = "proposed";
 const MAX_SCAN = 50;
+/** 采纳链的锁上限：一次扫队列 + 应用几份 diff，正常两秒内完成；锁主崩了 5 分钟后可回收 */
+const APPLY_LOCK_MS = 5 * 60_000;
 
 function readText(file: string): string | null {
   try {
@@ -225,10 +228,33 @@ export function createApplyTools(deps: ApplyToolsDeps): ApplyTools {
     return applied;
   };
 
+  /**
+   * 采纳链（扫队列 → 应用）跨实例互斥。
+   *
+   * 为什么需要：同一个工作区开两个 pi 时，两边的 `session_start` / `settle` 都会扫同一份 queue.json。
+   * 队列是「读-改-写」，两个进程同时写会互相覆盖；`autoApplyPending` 更糟 —— 同一份 diff 可能被
+   * 两个进程各应用一次。抢不到锁的那一方直接跳过，下一次 settle / 会话起点还会再来。
+   */
+  const withApplyLock = async (run: () => Promise<unknown>): Promise<void> => {
+    const got = await withLock(
+      {
+        evolutionDir: deps.evolutionDir,
+        name: "apply",
+        owner: { pid: process.pid, ts: now() },
+        maxRuntimeMs: APPLY_LOCK_MS,
+        log,
+      },
+      run,
+    );
+    if (!got.ok) {
+      log(`[skill-evolve] 采纳链由另一个 pi 实例持有（locks/apply pid ${got.owner?.pid ?? "?"}），本次跳过`);
+    }
+  };
+
   const scanAndApply = (): void => {
-    void enqueueReady()
-      .then(() => autoApplyPending())
-      .catch((error: unknown) => log(`[skill-evolve] 采纳扫描失败：${String(error)}`));
+    void withApplyLock(() => enqueueReady().then(() => autoApplyPending())).catch((error: unknown) =>
+      log(`[skill-evolve] 采纳扫描失败：${String(error)}`),
+    );
   };
 
   const sessionStart: ApplyTools["sessionStart"] = () => {
@@ -239,8 +265,7 @@ export function createApplyTools(deps: ApplyToolsDeps): ApplyTools {
       log(`[skill-evolve] 备份清理失败：${String(error)}`);
     }
     void saveGate0(deps.evolutionDir, captureGate0(deps.git, deps.cwd, time), deps.queue)
-      .then(() => enqueueReady())
-      .then(() => autoApplyPending())
+      .then(() => withApplyLock(() => enqueueReady().then(() => autoApplyPending())))
       .catch((error: unknown) => log(`[skill-evolve] 会话起点初始化失败：${String(error)}`));
   };
 

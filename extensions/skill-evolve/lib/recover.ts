@@ -13,6 +13,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { withLock } from "./lock.ts";
 import { spawnReviewSupervisor, type SpawnSupervisorOptions } from "./review-spawn.ts";
 import { listRuns, updateRunStatus, type RunRecord } from "./runs.ts";
 import type { MutationQueue } from "./telemetry.ts";
@@ -56,8 +57,24 @@ export interface RecoverDeps {
   autoReview?: () => boolean;
   reviewModel?: () => string;
   spawnSupervisor?: (options: SpawnSupervisorOptions) => number | null;
+  /** 本会话 ID：写进锁 owner.json，排查「谁在重挂」时有用 */
+  sessionId?: string;
   log?: (msg: string) => void;
   windowMs?: number;
+}
+
+/** 督导锁只护「起来 + 写 supervisorPid」这几毫秒，留 60 秒足够，锁主崩了也不会长期占住 */
+const SUPERVISOR_LOCK_MS = 60_000;
+
+/** 抢到锁后重新确认「这条 run 的督导确实不在」，防止两边都判死、抢完各起一个 */
+function supervisorStillGone(
+  runDir: string,
+  record: RunRecord,
+  alive: (pid: number) => boolean,
+): boolean {
+  const fresh = readRecord(runDir) ?? record;
+  const pid = fresh.supervisorPid;
+  return !(typeof pid === "number" && alive(pid));
 }
 
 function exists(runDir: string, name: string): boolean {
@@ -146,15 +163,45 @@ export async function recoverRuns(deps: RecoverDeps): Promise<RecoveryAction[]> 
       actions.push({ runId, kind: "respawn-blocked", detail: "自动评审关着：停在待人工 /skill-evolve approve" });
       continue;
     }
-    const pid = spawnSupervisor({
-      runDir,
-      cwd: deps.cwd,
-      autoReview: true,
-      reviewModel: deps.reviewModel?.() ?? "inherit",
-      ...(deps.env ? { env: deps.env } : {}),
-      ...(deps.alive ? { alive: deps.alive } : {}),
-      log,
-    });
+    // 3. 跨实例互斥：同一个工作区开两个 pi 时，两边 session_start 都会走到这里。
+    //    单飞闸只认「已经写进 run.json 的活 pid」，两边的 spawn 之间有空档，会各起一个督导（双花 token、双写 03-review）。
+    //    所以先用 locks/supervisor 抢一下，抢不到说明对面那份正在重挂，让它挂。
+    const spawned = await withLock(
+      {
+        evolutionDir: deps.evolutionDir,
+        name: "supervisor",
+        owner: { pid: process.pid, ts: now(), ...(deps.sessionId ? { sessionId: deps.sessionId } : {}) },
+        maxRuntimeMs: SUPERVISOR_LOCK_MS,
+        log,
+        ...(deps.now ? { now: deps.now } : {}),
+      },
+      () =>
+        // 抢到锁后再判一次：对面可能刚好在抢锁之前写完 supervisorPid
+        supervisorStillGone(runDir, record, alive)
+          ? spawnSupervisor({
+              runDir,
+              cwd: deps.cwd,
+              autoReview: true,
+              reviewModel: deps.reviewModel?.() ?? "inherit",
+              ...(deps.env ? { env: deps.env } : {}),
+              ...(deps.alive ? { alive: deps.alive } : {}),
+              log,
+            })
+          : "taken", 
+    );
+    if (!spawned.ok) {
+      actions.push({
+        runId,
+        kind: "respawn-blocked",
+        detail: `另一个 pi 实例正在重挂督导（locks/supervisor 被 pid ${spawned.owner?.pid ?? "?"} 持有）`,
+      });
+      continue;
+    }
+    const pid = spawned.value;
+    if (pid === "taken") {
+      actions.push({ runId, kind: "waiting-review", detail: "等到锁时督导已经在了（另一个实例刚挂上），不重复起" });
+      continue;
+    }
     actions.push(
       pid === null
         ? { runId, kind: "respawn-blocked", detail: "督导没起来（单飞闸占满或 spawn 失败），下次会话起点还会再试" }

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.13] - 2026-11-09
+
+同一个工作区开两个 pi（两个窗口 / 一个窗口执行中另开一个）时的两条竞态。
+
+- 修复：两个实例的 `session_start` 都会重挂督导，单飞闸只认「已经写进 `run.json` 的活 pid」，两边 spawn 之间的空档会各起一个督导（双花 token、双写 `03-review.json`）。现在重挂前先抢 `locks/supervisor`，抢到后再复核一次 `supervisorPid`，后到者直接写 `respawn-blocked`「另一个 pi 实例正在重挂督导」
+- 修复：两个实例同时扫队列采纳会互相覆盖 `queue.json`（读-改-写），同一份 diff 甚至可能被各应用一次。`session_start` / `settle` 的「扫队列 → 应用」整段现在抢 `locks/apply`，抢不到就跳过，下一次会话起点再来
+- 新增：`lockDir(evolutionDir, name)` 支持多把锁（`dispatch` / `supervisor` / `apply`，缺省仍是 `dispatch`，老行为不变）；`withLock()` 跨进程互斥执行，异常也保证释放
+- 测试：685 → 688（新增「两个 pi 同时恢复只起一个督导」「两把锁互不干扰」「withLock 忙时让位 + 抛错也释放」）；另用两个真实 node 进程并发跑恢复验证：`spawn` 计数 1，一个 `supervisor-respawned`、一个 `respawn-blocked`
+
 ## [0.1.12] - 2026-11-09
 
 按 npm 包安装时「评审 → 采纳」整条链原本一次都跑不起来，这个版本修掉它，并把每轮复盘画成五段流水线。

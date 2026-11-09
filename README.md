@@ -48,6 +48,15 @@ pi install git:github.com/suveng/pi-skill-evolve
 | 评审 | `03-review.json` | 提案在、督导不在 → 下次会话起点自动重挂 |
 | 采纳 | `04-decision.json` | 自动采纳关着 → 面板待审批页批准 |
 
+### 一个工作区开两个 pi
+
+同时开两个 pi 窗口（或一个在跑、另开一个）时：
+
+- **复盘派发**：`locks/dispatch` 原子锁，任意时刻只有一个 run 在跑，另一个只写一条 `skipped(busy)`
+- **重挂督导**：`locks/supervisor` + 抢到锁后复核 `supervisorPid`，只有一边起督导，另一边记「另一个 pi 实例正在重挂督导」
+- **扫队列 / 采纳**：`locks/apply` 独占，「读-改-写 `queue.json`」与应用 diff 不会被两边同时做；抢不到的那一边跳过，下次 `settle` / 会话起点再来
+- **Web 面板**：`locks/web.json` 记持有者，第二个实例不抢端口，只在日志里说「由 pid N 持有」；`/skill-evolve status` 在任何一边都能看到面板地址
+
 ### 重启恢复
 
 `/reload` 或重启会丢掉内存里的收尸逻辑（`watchRunChild` 的回调），所以 `session_start` 会跑一次恢复：补 `analyzed` 状态、重挂被带走的督导、其余不动。**永不重跑复盘**（花 token 且会覆盖已有产物），有动作时用一行通知说明补了什么。

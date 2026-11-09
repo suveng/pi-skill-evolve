@@ -27,8 +27,11 @@ export function isPidAlive(pid: number): boolean {
   }
 }
 
-export function lockDir(evolutionDir: string): string {
-  return path.join(evolutionDir, "locks", "dispatch");
+/** 锁名 → 目录名。`dispatch` 是复盘派发的老锁；`supervisor` / `apply` 是 0.1.13 加的跨实例锁 */
+export type LockName = "dispatch" | "supervisor" | "apply";
+
+export function lockDir(evolutionDir: string, name: LockName = "dispatch"): string {
+  return path.join(evolutionDir, "locks", name);
 }
 
 /**
@@ -71,6 +74,8 @@ export async function readOwner(dir: string): Promise<LockOwner | null> {
 
 export interface AcquireOptions {
   evolutionDir: string;
+  /** 哪把锁，缺省 `dispatch`（老行为不变） */
+  name?: LockName;
   owner: LockOwner;
   maxRuntimeMs: number;
   log?: (msg: string) => void;
@@ -86,7 +91,7 @@ export interface AcquireResult {
 
 export async function acquireLock(options: AcquireOptions): Promise<AcquireResult> {
   const log = options.log ?? (() => {});
-  const dir = lockDir(options.evolutionDir);
+  const dir = lockDir(options.evolutionDir, options.name);
   const now = options.now?.() ?? Date.now();
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -119,7 +124,7 @@ export async function acquireLock(options: AcquireOptions): Promise<AcquireResul
     } catch (error) {
       // 目录建好了但 owner 写不进去：立刻还回去，避免留下无人认领的锁
       log(`[skill-evolve] 写 owner.json 失败：${String(error)}`);
-      await releaseLock(options.evolutionDir, options.log);
+      await releaseLock(options.evolutionDir, options.log, options.name);
       return { ok: false, why: "error" };
     }
   }
@@ -127,8 +132,12 @@ export async function acquireLock(options: AcquireOptions): Promise<AcquireResul
 }
 
 /** 释放锁（幂等）：目录不在也算成功 */
-export async function releaseLock(evolutionDir: string, log: (msg: string) => void = () => {}): Promise<void> {
-  const dir = lockDir(evolutionDir);
+export async function releaseLock(
+  evolutionDir: string,
+  log: (msg: string) => void = () => {},
+  name: LockName = "dispatch",
+): Promise<void> {
+  const dir = lockDir(evolutionDir, name);
   try {
     await fs.promises.rm(dir, { recursive: true, force: true });
   } catch (error) {
@@ -146,7 +155,7 @@ function writeOwnerFile(dir: string, owner: LockOwner): void {
  */
 export function acquireLockSync(options: AcquireOptions): AcquireResult {
   const log = options.log ?? (() => {});
-  const dir = lockDir(options.evolutionDir);
+  const dir = lockDir(options.evolutionDir, options.name);
   const now = options.now?.() ?? Date.now();
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -177,7 +186,7 @@ export function acquireLockSync(options: AcquireOptions): AcquireResult {
       return { ok: true };
     } catch (error) {
       log(`[skill-evolve] 写 owner.json 失败：${String(error)}`);
-      releaseLockSync(options.evolutionDir, options.log);
+      releaseLockSync(options.evolutionDir, options.log, options.name);
       return { ok: false, why: "error" };
     }
   }
@@ -189,9 +198,10 @@ export function writeOwnerSync(
   evolutionDir: string,
   owner: LockOwner,
   log: (msg: string) => void = () => {},
+  name: LockName = "dispatch",
 ): boolean {
   try {
-    writeOwnerFile(lockDir(evolutionDir), owner);
+    writeOwnerFile(lockDir(evolutionDir, name), owner);
     return true;
   } catch (error) {
     log(`[skill-evolve] 改写 owner.json 失败：${String(error)}`);
@@ -200,9 +210,13 @@ export function writeOwnerSync(
 }
 
 /** 同步放锁：只给同步补发路径用（失败也只记日志） */
-export function releaseLockSync(evolutionDir: string, log: (msg: string) => void = () => {}): void {
+export function releaseLockSync(
+  evolutionDir: string,
+  log: (msg: string) => void = () => {},
+  name: LockName = "dispatch",
+): void {
   try {
-    fs.rmSync(lockDir(evolutionDir), { recursive: true, force: true });
+    fs.rmSync(lockDir(evolutionDir, name), { recursive: true, force: true });
   } catch (error) {
     log(`[skill-evolve] 释放锁失败：${String(error)}`);
   }
@@ -212,4 +226,31 @@ export async function lockState(evolutionDir: string): Promise<{ held: boolean; 
   const dir = lockDir(evolutionDir);
   const held = fs.existsSync(dir);
   return { held, owner: held ? await readOwner(dir) : null };
+}
+
+export interface WithLockResult<T> {
+  ok: boolean;
+  value?: T;
+  why?: "busy" | "error";
+  /** 抢失败时的持有者：调用方可以据此说「另一个 pi 实例正在做」 */
+  owner?: LockOwner | null;
+}
+
+/**
+ * 跨实例互斥执行：抢到锁就执行并保证在 finally 里释放；抢不到立刻返回（不排队、不重试）。
+ *
+ * 为什么不做「等一会儿再抢」：这些锁护的都是毫秒级动作（spawn 督导、扫一遍队列采纳），
+ * 排队只会把两个 pi 会话互相拖慢；抢不到的那一方跳过即可，下一次 session_start 还会再来。
+ */
+export async function withLock<T>(
+  options: AcquireOptions & { name: LockName },
+  run: () => Promise<T> | T,
+): Promise<WithLockResult<T>> {
+  const got = await acquireLock(options);
+  if (!got.ok) return { ok: false, why: got.why ?? "busy", owner: got.owner ?? null };
+  try {
+    return { ok: true, value: await run() };
+  } finally {
+    await releaseLock(options.evolutionDir, options.log, options.name);
+  }
 }

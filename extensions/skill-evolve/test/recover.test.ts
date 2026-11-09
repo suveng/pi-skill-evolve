@@ -151,3 +151,27 @@ test("面板文案带 kinds 与明细", () => {
   assert.match(text, /r-1 {2}重挂督导 — 重挂 pid 9/);
   assert.match(text, /r-2 {2}已中断 — 没提案/);
 });
+
+test("一个工作区两个 pi 同时启动恢复：督导只起一个（另一个看到锁里已经挂上了）", async () => {
+  const { evolutionDir, write } = setup();
+  write("r-9", { status: "analyzed", pid: null, supervisorPid: null }, ["01-findings.json", "02-proposal.json"]);
+  let spawns = 0;
+  const spawnSupervisor = (options: SpawnSupervisorOptions): number => {
+    spawns += 1;
+    // 模拟真实现：spawn 之后立刻把 supervisorPid 写回 run.json（这就是后到者的判断依据）
+    const file = path.join(options.runDir, "run.json");
+    const raw = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+    fs.writeFileSync(file, JSON.stringify({ ...raw, supervisorPid: process.pid }, null, 2));
+    return process.pid;
+  };
+  // 督导 pid 就是本进程 pid：重挂后它「活着」，这正是后到者的判断依据
+  const deps = base({ evolutionDir, spawnSupervisor, alive: (pid) => pid === process.pid });
+  const both = await Promise.all([recoverRuns(deps), recoverRuns(deps)]);
+  assert.equal(spawns, 1, "两个实例各起一个督导 = 双花 token + 双写 03-review");
+  const kinds = both.flat().map((action) => action.kind);
+  assert.ok(
+    kinds.includes("supervisor-respawned") || kinds.includes("respawn-blocked"),
+    `应当有人挂上、有人让位（实际 ${kinds.join(",")}）`,
+  );
+  assert.ok(!kinds.includes("interrupted"), "提案在、督导被重挂，不该判成中断");
+});
