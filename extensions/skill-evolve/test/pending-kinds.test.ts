@@ -31,7 +31,7 @@ function writeRun(
   dir: string,
   runId: string,
   status: string,
-  extra: { findings?: boolean; error?: boolean } = {},
+  extra: { findings?: boolean; error?: boolean; proposal?: boolean } = {},
 ): void {
   const runDir = path.join(dir, "runs", runId);
   fs.mkdirSync(runDir, { recursive: true });
@@ -41,6 +41,14 @@ function writeRun(
     "utf8",
   );
   if (extra.findings === true) fs.writeFileSync(path.join(runDir, "01-findings.json"), "{}\n", "utf8");
+  if (extra.proposal === true) {
+    fs.writeFileSync(
+      path.join(runDir, "02-proposal.json"),
+      `${JSON.stringify({ type: "improve", skill: "demo", diffFile: "02-proposal.diff" }, null, 2)}\n`,
+      "utf8",
+    );
+    fs.writeFileSync(path.join(runDir, "02-proposal.diff"), "--- a/x\n+++ b/x\n", "utf8");
+  }
   if (extra.error === true) {
     fs.writeFileSync(
       path.join(runDir, "run-error.json"),
@@ -76,12 +84,19 @@ test("有结论、没写 run-error.json 的 dispatched 补成 analyzed（原有�
   assert.equal(run?.status, "analyzed");
 });
 
-test("analyzed 归到「待评审」，不是「待入队」", () => {
+test("analyzed 且有提案 → 「待评审」，不是「待入队」", () => {
   const dir = tmpEvolution();
-  writeRun(dir, "run-a", "analyzed", { findings: true });
+  writeRun(dir, "run-a", "analyzed", { findings: true, proposal: true });
   const items = buildPending([], listRuns(dir), dir);
   const item = items.find((x) => x.runId === "run-a");
   assert.equal(item?.kind, "to-review");
+});
+
+test("analyzed 但没提案（判定不该改）→ 不进待处理，它是终态", () => {
+  const dir = tmpEvolution();
+  writeRun(dir, "run-noop", "analyzed", { findings: true });
+  const items = buildPending([], listRuns(dir), dir);
+  assert.equal(items.find((x) => x.runId === "run-noop"), undefined, "终态挂「待评审」会让待处理页永久堆积");
 });
 
 test("reviewed 且未入队才算「待入队」", () => {

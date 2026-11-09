@@ -50,14 +50,21 @@ test("分析在跑：分析=进行中，提案=进行中（同一子进程）", 
   assert.match(pipeline.stages[0]!.detail, /4242 在跑/);
 });
 
-test("分析完成没提案：写明「多半判定不该改」，不是错误", () => {
+test("分析完成没提案（状态已 analyzed）：提案段是 skipped 终态，不催「下一步提案」", () => {
   const dir = runDir();
   write(dir, "01-findings.json", "{}");
   const pipeline = buildPipeline(input(dir));
   assert.equal(stateOf(pipeline, "analyze"), "done");
+  assert.equal(stateOf(pipeline, "propose"), "skipped");
+  assert.match(pipeline.stages[2]!.detail, /不需要改/);
+});
+
+test("分析产物在但状态还 dispatched：提案段仍是 waiting（恢复会先补状态）", () => {
+  const dir = runDir();
+  write(dir, "01-findings.json", "{}");
+  const pipeline = buildPipeline(input(dir, { status: "dispatched" }));
   assert.equal(stateOf(pipeline, "propose"), "waiting");
   assert.match(pipeline.stages[2]!.detail, /没写提案/);
-  assert.match(pipeline.hint, /下一步「提案」/);
 });
 
 test("提案在、督导已死：评审判 blocked 且指向自动重挂（2026-11-09 事故现场）", () => {

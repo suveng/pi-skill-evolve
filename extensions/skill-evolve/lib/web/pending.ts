@@ -108,6 +108,15 @@ function runningItem(
   };
 }
 
+/** 产物是否存在：判定「这条 run 还有没有下一步」时用，坏路径当不存在 */
+function hasFile(file: string): boolean {
+  try {
+    return fs.statSync(file).isFile();
+  } catch {
+    return false;
+  }
+}
+
 /** 五类条目的展示优先级：正在跑最上头，然后卡死、待批、待评审、待入队 */
 const PENDING_RANK: Record<PendingKind, number> = { running: 0, stale: 1, approval: 2, "to-review": 3, reviewed: 4 };
 
@@ -173,9 +182,13 @@ export function buildPending(
       ].join("\n"),
     });
   }
-  // ④ 子进程已产出结论、评审还没跑的：不是失败（子进程本来就该退出），属于「等下一轮接上」
+  // ④ 子进程已产出结论、提案还没评审的：不是失败（子进程本来就该退出），属于「等下一轮接上」。
+  //    但只有**真有提案**才需要接着走：分析完判定「不该改」的 run（没有 02-proposal.json 也没有
+  //    run.json 里的 proposal 摘要）是终态，挂「待评审」只会在待处理页永久占位 ——
+  //    用户 2026-11-09 七条记录全在待处理：「终态为什么还在待处理下」。
   for (const run of runs) {
     if (run.status !== "analyzed" && run.status !== "proposed") continue;
+    if (run.proposal === undefined && !hasFile(path.join(evolutionDir, "runs", run.runId, "02-proposal.json"))) continue;
     pending.push({
       runId: run.runId,
       kind: "to-review",
@@ -183,8 +196,8 @@ export function buildPending(
       skill: run.proposal?.skill ?? "",
       at: run.dispatchedAt,
       detail: [
-        `状态：已出结论（${run.status}），评审还没跑`,
-        "会自动接上：下次 settle 或 session_start 继续；想立即接上就 /skill-evolve run",
+        `状态：已出结论（${run.status}）且提案已在，评审还没跑`,
+        "会自动接上：下次 settle 或 session_start 重挂督导；想立即接上就 /skill-evolve run",
         `证据：cat ${path.join(evolutionDir, "runs", run.runId, "01-findings.json")}`,
       ].join("\n"),
     });

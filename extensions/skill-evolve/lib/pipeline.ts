@@ -131,7 +131,10 @@ export function buildPipeline(input: PipelineInput): Pipeline {
       : childAlive
         ? { key: "propose", label: LABELS.propose, state: "running", detail: "分析在跑，提案随后写", at: null }
         : findings
-          ? { key: "propose", label: LABELS.propose, state: "waiting", detail: "分析已结束但没写提案（多半是判定「不该改」）", at: null }
+          ? input.status === "analyzed"
+            // 有结论、没提案、子进程也退了：这就是终态（本轮判定「不需要改」），不是「还在等」
+            ? { key: "propose", label: LABELS.propose, state: "skipped", detail: "分析判定不需要改：本轮不出提案（终态）", at: null }
+            : { key: "propose", label: LABELS.propose, state: "waiting", detail: "分析已结束但没写提案（多半是判定「不该改」）", at: null }
           : { key: "propose", label: LABELS.propose, state: "waiting", detail: "等分析结论", at: null };
   stages.push(propose);
 
