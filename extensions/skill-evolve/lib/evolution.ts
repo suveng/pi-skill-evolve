@@ -14,6 +14,7 @@ import { createDispatcher } from "./dispatch.ts";
 import { createApplyTools, type ApplyTools } from "./evolution-apply.ts";
 import { createModelTools, type ModelTools } from "./evolution-model.ts";
 import { createObserver, type Observer, type PanelDeps } from "./evolution-observe.ts";
+import { recoverRuns, type RecoveryAction } from "./recover.ts";
 import { createViews } from "./evolution-views.ts";
 import { flagStateText, FLAG_LABEL } from "./flags.ts";
 import type { GitRunner } from "./gate0.ts";
@@ -92,6 +93,13 @@ export interface Evolution {
   apply: ApplyTools;
   /** M6：面板刷新（状态变迁转 /tree 条目）与周报 + 指标落盘 */
   observe: Observer;
+  /**
+   * 重启 / `/reload` 后的接手：补状态、重挂督导师（详见 lib/recover.ts）。
+   * 返回本次做了什么，面板与日志都靠它告诉用户「后台任务没丢」。
+   */
+  recover(): Promise<RecoveryAction[]>;
+  /** 最近一次恢复的结果（面板可视化用；本进程内有效） */
+  lastRecovery(): RecoveryAction[];
 }
 
 export function createEvolution(deps: EvolutionDeps): Evolution {
@@ -270,6 +278,32 @@ export function createEvolution(deps: EvolutionDeps): Evolution {
     return `${FLAG_LABEL[field]}已${value ? "开启" : "关闭"}：${configFile(evolutionDir)}（当前会话立即生效）\n${flagStateText(config)}`;
   };
 
+  /**
+   * 重启 / 重载后的接手：只补状态与重挂督导师，绝不重跑复盘。
+   * 同步抛错也在这里吞：会话起点不能被恢复流程搞挂。
+   */
+  let lastActions: RecoveryAction[] = [];
+  const recover = async (): Promise<RecoveryAction[]> => {
+    try {
+      lastActions = await recoverRuns({
+        evolutionDir,
+        cwd: deps.cwd,
+        queue: deps.queue,
+        now,
+        env,
+        autoReview: () => config.autoReview,
+        reviewModel: modelTools.reviewModel,
+        ...(deps.alive ? { alive: deps.alive } : {}),
+        ...(deps.supervisorSpawnFn ? { spawnSupervisor: deps.supervisorSpawnFn } : {}),
+        log,
+      });
+    } catch (error) {
+      log(`[skill-evolve] 重启恢复失败：${String(error)}`);
+      lastActions = [];
+    }
+    return lastActions;
+  };
+
   return {
     recordAdvertised,
     noteToolCall,
@@ -288,5 +322,7 @@ export function createEvolution(deps: EvolutionDeps): Evolution {
     model: modelTools,
     apply: applyTools,
     observe: observer,
+    recover,
+    lastRecovery: () => lastActions,
   };
 }

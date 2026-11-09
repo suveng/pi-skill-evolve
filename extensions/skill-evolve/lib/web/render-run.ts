@@ -6,6 +6,7 @@
  *
  * 六块各自的空态都要写明「缺的是哪个文件」—— 一句「暂无数据」会让人以为页面坏了。
  */
+import { renderPipelineLine, type Pipeline, type PipelineStage } from "../pipeline.ts";
 import type { WebState } from "./data.ts";
 import { DIFF_PREVIEW_LINES, renderDiffLines, parseDiffLines } from "./diff-lines.ts";
 import type { RunBlocking, RunDetail, RunPassing } from "./run-detail.ts";
@@ -210,6 +211,41 @@ ${more}
 </section>`;
 }
 
+/** 五段格子的短状态词：格子窄，只用四个字以内 */
+const STAGE_WORD: Record<PipelineStage["state"], string> = {
+  done: "完成",
+  running: "进行中",
+  waiting: "等待",
+  blocked: "卡住",
+  failed: "失败",
+  skipped: "跳过",
+};
+
+/**
+ * 流水线：页面顶部那一排。放在概要**之前**是因为用户点进详情页的第一个问题永远是
+ * 「它现在到哪一步了」，而不是「pid 是多少」。每格给状态词 + 明细，卡住的那格直接写出下一步谁接手。
+ */
+function pipelineSection(pipeline: Pipeline): string {
+  const cells = pipeline.stages
+    .map((stage) => {
+      const at = stage.at === null ? "" : `<span class="pt">${escapeHtml(formatStamp(stage.at))}</span>`;
+      return `<li class="stage s-${stage.state}">
+<span class="pl">${escapeHtml(stage.label)}</span>
+<span class="ps">${escapeHtml(STAGE_WORD[stage.state])}</span>
+<span class="pd">${escapeHtml(stage.detail)}</span>
+${at}
+</li>`;
+    })
+    .join("\n");
+  return `<section>
+<h2>流水线</h2>
+<p class="hint">${escapeHtml(renderPipelineLine(pipeline))} · ${escapeHtml(pipeline.hint)}</p>
+<ol class="pipe">
+${cells}
+</ol>
+</section>`;
+}
+
 export interface RenderRunOptions {
   /** 状态栏要的数字（shell.ts 的 statusBar 唯一依赖） */
   state: WebState;
@@ -221,6 +257,7 @@ export function renderRunPage(detail: RunDetail, options: RenderRunOptions): str
   const back = options.back ?? { view: "pending", label: "待处理" };
   const body = `<main class="run">
 <p class="hint"><a href="/?view=${escapeHtml(back.view)}">← 回${escapeHtml(back.label)}</a></p>
+${pipelineSection(detail.pipeline)}
 ${overview(detail)}
 ${diffSection(detail)}
 ${candidateSection(detail)}

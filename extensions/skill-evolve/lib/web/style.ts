@@ -113,6 +113,24 @@ a.btn { display: inline-block; color: var(--blue); padding: 1px 8px; border: 1px
 .kv .k { color: var(--muted); font-size: 12px }
 .kv .v { color: var(--fg) }
 .kv-line { margin: 4px 0 }
+/* 流水线：五格等宽，颜色只表达状态（绿=完成、黄=在跑、蓝=卡住待人、红=失败、灰=等待/跳过）。
+   窄屏自动折成两行，不横向滚动 —— 状态必须一屏看全。 */
+.pipe { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; padding: 0; list-style: none }
+.pipe .stage { flex: 1 1 150px; min-width: 140px; padding: 8px 10px; border: 1px solid var(--line);
+  border-top: 2px solid var(--line); border-radius: 6px; background: var(--panel) }
+.pipe .pl { display: block; color: var(--muted); font-size: 12px }
+.pipe .ps { display: block; font-size: 13px; font-weight: 600 }
+.pipe .pd { display: block; margin-top: 2px; color: #aeb7c4; font-size: 12px; line-height: 1.45 }
+.pipe .pt { display: block; margin-top: 4px; color: #5d6675; font-size: 12px }
+.pipe .s-done { border-top-color: var(--green) }
+.pipe .s-done .ps { color: var(--green) }
+.pipe .s-running { border-top-color: var(--yellow) }
+.pipe .s-running .ps { color: var(--yellow) }
+.pipe .s-blocked { border-top-color: var(--blue) }
+.pipe .s-blocked .ps { color: var(--blue) }
+.pipe .s-failed { border-top-color: var(--red) }
+.pipe .s-failed .ps { color: var(--red) }
+.pipe .s-waiting .ps, .pipe .s-skipped .ps { color: var(--muted) }
 /* 评审结论摘要：详情页里唯一「大一号」的正文，用户上来先读这一句 */
 .verdict-summary { margin: 6px 0; font-size: 15px; font-weight: 600; color: var(--fg) }
 a.run { color: #c8d3e6; border-bottom: 1px dashed #45505f }

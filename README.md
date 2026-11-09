@@ -36,6 +36,22 @@ pi install git:github.com/suveng/pi-skill-evolve
 
 只绑 `127.0.0.1`、零鉴权、写操作带 CSRF 与同源校验；远程看用 `ssh -L 7788:127.0.0.1:7788`。
 
+### 流水线
+
+每条 run 都走五段，run 详情页顶部会画出这五格（状态词 + 明细 + 时刻 + 一句话 hint）：
+
+| 段 | 完成的标志 | 卡住时谁接手 |
+|---|---|---|
+| 派发 | `run.json` | — |
+| 分析 | `01-findings.json` | 子进程退出没产物 → 卡死判定收尾 |
+| 提案 | `02-proposal.json` | 分析已结束却没提案 = 判定「不该改」，正常结束 |
+| 评审 | `03-review.json` | 提案在、督导不在 → 下次会话起点自动重挂 |
+| 采纳 | `04-decision.json` | 自动采纳关着 → 面板待审批页批准 |
+
+### 重启恢复
+
+`/reload` 或重启会丢掉内存里的收尸逻辑（`watchRunChild` 的回调），所以 `session_start` 会跑一次恢复：补 `analyzed` 状态、重挂被带走的督导、其余不动。**永不重跑复盘**（花 token 且会覆盖已有产物），有动作时用一行通知说明补了什么。
+
 ## 配置
 
 `.pi/evolution/config.json`（建议 gitignore，开关是本机偏好）：

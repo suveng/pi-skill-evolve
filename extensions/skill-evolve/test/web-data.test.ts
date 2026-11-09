@@ -313,6 +313,8 @@ test("pending：正在跑的 run 排最前，阶段 / 进程 / 最近输出 / �
   assert.match(detail, /进程：pid 1234 · 已跑 1m 30s（上限 20 分钟）/);
   assert.match(detail, /最近输出：（还没有输出）/, "child.log 还没生成时明确说没有输出");
   assert.match(detail, /日志：tail -f \.pi\/evolution\/runs\/live\/child\.log/);
+  // 五段进度：分析在跑 ⇒ 分析/提案都该是「…」，评审判「等提案」而不是含糊的「在进行」
+  assert.match(detail, /流水线：派发✓ 分析… 提案… 评审· 采纳·/);
   assert.equal(state.pending[1]!.kind, "approval", "待批排在运行中之后");
 });
 

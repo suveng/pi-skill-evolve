@@ -14,7 +14,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ServerResponse } from "node:http";
 import { readVerify } from "../apply.ts";
+import { loadConfig } from "../config.ts";
+import { buildPipeline, type Pipeline } from "../pipeline.ts";
 import { readProposalSummary } from "../proposal.ts";
+import { readQueue } from "../queue.ts";
 import type { RunRecord } from "../runs.ts";
 import { asNumber, asRecord, asText, readJson, reasonLabel } from "./json-read.ts";
 import { sendText, TEXT_TYPE } from "./http.ts";
@@ -95,6 +98,8 @@ export interface RunDetail {
   findings: RunFinding[];
   findingsTotal: number;
   notes: string;
+  /** 五段流水线（派发→分析→提案→评审→采纳）：页面顶部那排格子 */
+  pipeline: Pipeline;
 }
 
 function readTextFile(file: string): string | null {
@@ -229,6 +234,20 @@ export function readRunDetail(evolutionDir: string, runId: string): RunDetail | 
   const reviewAt = asNumber(asRecord(readJson<unknown>(path.join(runDir, "03-review.json")))?.reviewedAt);
   const stamps = [decision, verifyAt, reviewAt].filter((value): value is number => value !== null);
   const hasChildLog = exists(path.join(runDir, "child.log"));
+  // 流水线：pid 存活按 run.json 记的两个 pid，队列状态按 queue.json（不在队列 = null）
+  // 开关来自 config.json —— 面板只读，读配置也只是想知道「为什么这步被跳过了」
+  const config = loadConfig(evolutionDir);
+  const queued = readQueue(evolutionDir).find((item) => item.runId === runId)?.status ?? null;
+  const pipeline = buildPipeline({
+    runDir,
+    status: asText(record?.status, ""),
+    pid: asNumber(record?.pid),
+    supervisorPid: asNumber(record?.supervisorPid),
+    dispatchedAt: asNumber(record?.dispatchedAt),
+    queued,
+    autoReview: config.autoReview,
+    autoApply: config.autoApply,
+  });
   return {
     runId,
     status: asText(record?.status, "（无 run.json）"),
@@ -245,6 +264,7 @@ export function readRunDetail(evolutionDir: string, runId: string): RunDetail | 
     ...review,
     ...gates,
     ...findings,
+    pipeline,
   };
 }
 

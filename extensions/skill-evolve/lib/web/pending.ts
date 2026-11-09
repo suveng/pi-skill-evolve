@@ -8,6 +8,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { QueueItem } from "../queue.ts";
+import { buildPipeline, renderPipelineLine } from "../pipeline.ts";
 import type { RunStatus, RunSummary } from "../runs.ts";
 import { CHILD_LOG } from "../spawn-plan.ts";
 import { classifyStale, readLogTail, readRunError } from "../stale.ts";
@@ -80,6 +81,17 @@ function runningItem(
     mtime === null
       ? "最近输出：（还没有输出）"
       : `最近输出：${Math.max(0, Math.round((now - mtime) / 1000))}s 前 · 末行：${lastLine.length > 0 ? lastLine : "（还没有输出）"}`;
+  // 五段进度：光写「复盘产出中」看不出是卡在分析还是卡在提案（用户 2026-11-09 的真实困惑）
+  const pipeline = renderPipelineLine(
+    buildPipeline({
+      runDir: path.join(evolutionDir, "runs", run.runId),
+      status: run.status,
+      pid: run.pid,
+      supervisorPid: run.supervisorPid,
+      dispatchedAt: run.dispatchedAt,
+      alive,
+    }),
+  );
   return {
     runId: run.runId,
     kind: "running",
@@ -88,6 +100,7 @@ function runningItem(
     at: run.dispatchedAt,
     detail: [
       `阶段：${reviewing ? "评审中" : "复盘产出中"}`,
+      `流水线：${pipeline}`,
       `进程：pid ${run.pid} · 已跑 ${duration(now - (run.dispatchedAt ?? now))}（上限 ${Math.round(maxRuntimeMs / 60_000)} 分钟）`,
       progressLine,
       `日志：tail -f .pi/evolution/runs/${run.runId}/${CHILD_LOG}`,

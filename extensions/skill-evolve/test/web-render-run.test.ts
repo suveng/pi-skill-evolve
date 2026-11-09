@@ -69,6 +69,17 @@ function detail(parts: Partial<RunDetail> = {}): RunDetail {
     findings: [{ skill: "demo", reason: "G", confidence: "high", lines: [578, 622] }],
     findingsTotal: 1,
     notes: "",
+    // 流水线固定在详情页顶部：夹具给一条「已驳回」的完整链路，断言单独在 test/pipeline.test.ts
+    pipeline: {
+      stages: [
+        { key: "dispatch", label: "派发", state: "done", detail: "复盘子进程 pid 65757 已退出", at: 1794133942865 },
+        { key: "analyze", label: "分析", state: "done", detail: "01-findings.json 已落盘", at: 1794134000000 },
+        { key: "propose", label: "提案", state: "done", detail: "improve → demo", at: 1794134050000 },
+        { key: "review", label: "评审", state: "done", detail: "rejected / revise", at: 1794134158913 },
+        { key: "apply", label: "采纳", state: "skipped", detail: "评审驳回，不会采纳", at: null },
+      ],
+      hint: "流程结束：卡在「采纳」— 评审驳回，不会采纳",
+    },
     ...parts,
   };
 }

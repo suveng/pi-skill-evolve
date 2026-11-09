@@ -7,6 +7,9 @@ import assert from "node:assert/strict";
 import * as path from "node:path";
 import { SUPERVISOR_SCRIPT, spawnReviewSupervisor } from "../lib/review-spawn.ts";
 
+/** 测试里不搬家：直接返回包内入口（搬家用 supervisor-runtime.test.ts 单独覆盖） */
+const direct = ({ scriptPath }: { scriptPath: string }): string => scriptPath;
+
 function capture(): { calls: { command: string; args: string[]; options: Record<string, unknown> }[]; unrefs: number } {
   return { calls: [], unrefs: 0 };
 }
@@ -18,6 +21,7 @@ test("督导用 node + --experimental-strip-types 起，参数里带 runDir", ()
     cwd: "/repo",
     env: {},
     autoReview: true,
+    resolveScript: direct,
     spawnFn: (command, args, options) => {
       seen.calls.push({ command, args, options });
       return {
@@ -45,8 +49,8 @@ test("inherit 不追加 --model，显式模型追加在 runDir 之后", () => {
     explicitArgs.push(args);
     return { pid: 1 };
   };
-  spawnReviewSupervisor({ runDir: "/r", cwd: "/repo", env: {}, autoReview: true, reviewModel: "inherit", spawnFn });
-  spawnReviewSupervisor({ runDir: "/r", cwd: "/repo", env: {}, autoReview: true, reviewModel: "deepseek/deepseek-v3.2", spawnFn });
+  spawnReviewSupervisor({ runDir: "/r", cwd: "/repo", env: {}, autoReview: true, reviewModel: "inherit", spawnFn, resolveScript: direct });
+  spawnReviewSupervisor({ runDir: "/r", cwd: "/repo", env: {}, autoReview: true, reviewModel: "deepseek/deepseek-v3.2", spawnFn, resolveScript: direct });
   assert.deepEqual(inheritArgs[0], ["--experimental-strip-types", SUPERVISOR_SCRIPT, "/r"]);
   assert.deepEqual(explicitArgs[1], ["--experimental-strip-types", SUPERVISOR_SCRIPT, "/r", "deepseek/deepseek-v3.2"]);
 });
@@ -58,6 +62,7 @@ test("env 里去掉 SKILL_EVOLVE_CHILD，其他变量照旧带走", () => {
     cwd: "/repo",
     env: { SKILL_EVOLVE_CHILD: "1", PATH: "/usr/bin" },
     autoReview: true,
+    resolveScript: direct,
     spawnFn: (_command, _args, options) => {
       env = options.env as NodeJS.ProcessEnv;
       return { pid: 1 };
@@ -65,6 +70,27 @@ test("env 里去掉 SKILL_EVOLVE_CHILD，其他变量照旧带走", () => {
   });
   assert.equal(env.SKILL_EVOLVE_CHILD, undefined);
   assert.equal(env.PATH, "/usr/bin");
+});
+
+test("督导入口解析拿到 evolutionDir（node_modules 里要搬到工作区 runtime 下再跑）", () => {
+  const seen: { evolutionDir?: string; scriptPath?: string }[] = [];
+  spawnReviewSupervisor({
+    runDir: "/repo/.pi/evolution/runs/run-9",
+    cwd: "/repo",
+    env: {},
+    autoReview: true,
+    resolveScript: (options) => {
+      seen.push(options);
+      return "/tmp/copied/review-supervisor.ts";
+    },
+    spawnFn: (_c, args) => {
+      assert.equal(args[1], "/tmp/copied/review-supervisor.ts", "spawn 用的必须是解析后的路径");
+      return { pid: 7 };
+    },
+  });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0]!.evolutionDir, "/repo/.pi/evolution");
+  assert.equal(seen[0]!.scriptPath, SUPERVISOR_SCRIPT);
 });
 
 test("自动评审关着：一个进程都不起，只留一句「停在 proposed」日志", () => {
@@ -75,6 +101,7 @@ test("自动评审关着：一个进程都不起，只留一句「停在 propose
     cwd: "/repo",
     env: {},
     autoReview: false,
+    resolveScript: direct,
     log: (msg) => logs.push(msg),
     spawnFn: () => {
       spawned += 1;
@@ -94,6 +121,7 @@ test("起不来只记日志返回 null，不抛", () => {
     cwd: "/repo",
     env: {},
     autoReview: true,
+    resolveScript: direct,
     log: (msg) => logs.push(msg),
     spawnFn: () => {
       throw new Error("EMFILE");

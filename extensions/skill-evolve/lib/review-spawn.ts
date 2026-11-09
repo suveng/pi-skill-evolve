@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { patchRunRecordSync } from "./runs.ts";
 import { guardBusy } from "./single-flight.ts";
 import { spawnDetached } from "./spawn-plan.ts";
+import { ensureSupervisorRuntime, type RuntimeOptions } from "./supervisor-runtime.ts";
 import type { TelemetryWriter } from "./telemetry.ts";
 
 /** 督导脚本绝对路径：dispatch 与 shutdown-dispatch 两条路径共用 */
@@ -50,6 +51,13 @@ export interface SpawnSupervisorOptions {
   alive?: (pid: number) => boolean;
   /** 退出补发路径：主进程马上退，遥测只能同步写 */
   sync?: boolean;
+  /**
+   * 督导入口解析：默认走 supervisor-runtime 的「node_modules 里先搬家」逻辑。
+   * 单测注入它，避免真去拷源码目录。
+   */
+  resolveScript?: (options: RuntimeOptions) => string;
+  /** 包版本：参与运行目录的缓存键 */
+  version?: string;
 }
 
 /** 返回 pid；被单飞闸挡住或起不来返回 null（只记日志，绝不抛到主会话） */
@@ -74,7 +82,16 @@ export function spawnReviewSupervisor(options: SpawnSupervisorOptions): number |
   const env = { ...(options.env ?? process.env) };
   // 督导自己不是 pi 子代理：把「别再采集」的标记去掉，避免它起评审子进程时语义混乱
   delete env.SKILL_EVOLVE_CHILD;
-  const args = ["--experimental-strip-types", SUPERVISOR_SCRIPT, options.runDir];
+  // node_modules 里的 .ts 不能直接跑（ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING）：先搬到工作区的
+  // runtime 目录再起进程，否则按 npm 包安装时督导**每次**都崩在 import 阶段（2026-11-09 事故）
+  const resolveScript = options.resolveScript ?? ensureSupervisorRuntime;
+  const script = resolveScript({
+    evolutionDir: path.dirname(path.dirname(options.runDir)),
+    scriptPath: SUPERVISOR_SCRIPT,
+    ...(options.version ? { version: options.version } : {}),
+    ...(options.log ? { log: options.log } : {}),
+  });
+  const args = ["--experimental-strip-types", script, options.runDir];
   if (options.reviewModel && options.reviewModel !== "inherit") args.push(options.reviewModel);
   const spawnFn = options.spawnFn ?? (nodeSpawn as unknown as SupervisorSpawn);
   try {

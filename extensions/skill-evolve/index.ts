@@ -16,6 +16,7 @@ import { createEvolution, type Evolution } from "./lib/evolution.js";
 import { logLine } from "./lib/logfile.js";
 import { deliverNotifications } from "./lib/notify.js";
 import { entryLines, type PanelEntry, type PanelState } from "./lib/panel.js";
+import { renderRecovery } from "./lib/recover.js";
 import { renderPanel, writeEntry, type UiPanelHost } from "./lib/ui-gate.js";
 import { startWebPanel } from "./lib/web/server.js";
 import { createWebLifecycle } from "./lib/web/autostart.js";
@@ -233,6 +234,15 @@ export default function skillEvolve(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     guarded(ctx, "session_start", (evo) => {
       evo.apply.sessionStart();
+      // `/reload` 与重启会丢掉内存里的收尸逻辑：这里补状态、重挂被带走的督导（不重跑复盘）
+      void evo.recover().then((actions) => {
+        if (actions.length > 0) {
+          // 通知只有一行：把多行恢复报告压成 ` / ` 分隔
+          const brief = renderRecovery(actions).replace(/\n\s*/g, " / ");
+          ctx.ui.notify(brief, "info");
+        }
+        evo.observe.refresh();
+      });
       evo.observe.refresh();
       // 上一轮没送出去的失败/待批，这里补发（notified.json 保证不重复）
       notifyEvents(ctx.cwd);

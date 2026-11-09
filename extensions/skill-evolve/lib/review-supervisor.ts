@@ -15,7 +15,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { loadHardRules, scanText, type CompiledRules, type HardRuleHit } from "./hard-rules.ts";
 import { buildReviewPrompt } from "./review-prompt.ts";
 import { classifyChange } from "./classify-action.ts";
@@ -270,7 +270,23 @@ async function main(): Promise<void> {
   }
 }
 
-const invokedDirectly = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+/**
+ * 「是不是被当脚本直接跑」判定：必须比**真实路径**。
+ * macOS 的 `/tmp` 是 `/private/tmp` 的软链，直接比 `import.meta.url` 与 `pathToFileURL(argv[1])`
+ * 会得出 false —— 督导被搬进工作区 runtime 目录后若那里恰好带软链，就会「起来但什么都不做」（静默不跑）。
+ */
+export function isDirectInvocation(argv1: string | undefined, moduleUrl: string): boolean {
+  if (!argv1) return false;
+  try {
+    const same = fs.realpathSync(argv1) === fs.realpathSync(fileURLToPath(moduleUrl));
+    if (same) return true;
+  } catch {
+    // 路径解析不了就退回字符串比较（行为与旧版一致）
+  }
+  return pathToFileURL(argv1).href === moduleUrl;
+}
+
+const invokedDirectly = isDirectInvocation(process.argv[1], import.meta.url);
 if (invokedDirectly) {
   void main().catch((error: Error) => {
     console.error(`[skill-evolve] 评审督导异常：${error.message}`);
