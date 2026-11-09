@@ -212,7 +212,6 @@ export function buildWeeklyReport(input: WeeklyInput): string {
     const refs = input.referenceScan?.(skill.name);
     const parts: string[] = [];
     if (refs) {
-      parts.push(`.cursor stub ${refs.cursorStub ? "有" : "缺"}`);
       parts.push(`AGENTS 索引 ${refs.agentsIndex ? "有" : "缺"}`);
       parts.push(`其它引用 ${refs.mentions} 处`);
     }

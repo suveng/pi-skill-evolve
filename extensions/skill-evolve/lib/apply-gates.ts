@@ -91,10 +91,13 @@ function escapeRe(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** 新增技能的引用面（设计稿 10.4 的 ②③）：缺 stub 或缺索引行就说明收口没做完 */
+/**
+ * 新增技能的引用面：还差 AGENTS.md 索引行就说明收口没做完。
+ * `.cursor` 路由 stub 已不检查（用户 2026-11-09：「缺 .cursor stub 这个不需要检查」）——
+ * 本仓库技能只走 `.pi/skills`，Cursor 侧 stub 不是必须品。
+ */
 function missingReferences(cwd: string, skill: string): string[] {
   const missing: string[] = [];
-  if (!fs.existsSync(path.join(cwd, ".cursor", "skills", skill, "SKILL.md"))) missing.push(`.cursor/skills/${skill}/SKILL.md`);
   const agents = readTextOrNull(path.join(cwd, "AGENTS.md")) ?? "";
   if (!new RegExp(`^\\s*[-*]\\s+\`${escapeRe(skill)}\``, "m").test(agents)) missing.push(`AGENTS.md 索引表（- \`${skill}\` …）`);
   return missing;

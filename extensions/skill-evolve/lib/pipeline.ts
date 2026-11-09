@@ -11,7 +11,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 /** done=已完成 / running=正在跑 / waiting=等上一步 / blocked=卡住等人或等重启 / failed=失败 / skipped=按配置跳过 */
-export type StageState = "done" | "running" | "waiting" | "blocked" | "failed" | "skipped";
+export type StageState = "done" | "running" | "waiting" | "blocked" | "failed" | "skipped" | "ended";
+
+/**
+ * `skipped` 与 `ended` 的区别（用户 2026-11-09：「跳过很奇怪，是不是该加个终态」）：
+ * - `skipped`：这一格本来就不跑（开关关着 / 评审驳回了采纳）。流程到此为止没问题。
+ * - `ended`：前一格的**结论**就是「没有下一步」（分析判定不需要改），这是正常终态，
+ *   不是谁把流程关掉了。混用一个「跳过」会让用户以为漏跑了什么。
+ */
 
 export type StageKey = "dispatch" | "analyze" | "propose" | "review" | "apply";
 
@@ -92,6 +99,10 @@ export function buildPipeline(input: PipelineInput): Pipeline {
   const verify = statOf(path.join(dir, "06-verify.json"));
   const proposal = proposalFile ? jsonOf(path.join(dir, "02-proposal.json")) : null;
   const review = reviewFile ? jsonOf(path.join(dir, "03-review.json")) : null;
+  const reviewStatus = review ? textOf(review.status, "未知") : null;
+  // 督导等提案超时会写 03-review（status=skipped, reason=proposal-timeout）：
+  // 这是那些 run 的真实收尾原因，不能一律说成「分析判定不需要改」。
+  const proposalTimeout = reviewStatus === "skipped" && textOf(review?.reason) === "proposal-timeout";
   const dead = DEAD_STATUS.has(input.status);
   const childAlive = input.pid !== null && alive(input.pid);
   const supervisorAlive = input.supervisorPid !== null && alive(input.supervisorPid);
@@ -133,21 +144,39 @@ export function buildPipeline(input: PipelineInput): Pipeline {
         : findings
           ? input.status === "analyzed"
             // 有结论、没提案、子进程也退了：这就是终态（本轮判定「不需要改」），不是「还在等」
-            ? { key: "propose", label: LABELS.propose, state: "skipped", detail: "分析判定不需要改：本轮不出提案（终态）", at: null }
-            : { key: "propose", label: LABELS.propose, state: "waiting", detail: "分析已结束但没写提案（多半是判定「不该改」）", at: null }
+            ? {
+                key: "propose",
+                label: LABELS.propose,
+                state: "ended",
+                detail: proposalTimeout ? "督导等提案超时：本轮不出提案（终态）" : "分析判定不需要改：本轮不出提案（终态）",
+                at: null,
+              }
+            : {
+                key: "propose",
+                label: LABELS.propose,
+                state: "waiting",
+                detail: proposalTimeout ? "督导等提案超时：分析没写提案" : "分析已结束但没写提案（多半是判定「不该改」）",
+                at: null,
+              }
           : { key: "propose", label: LABELS.propose, state: "waiting", detail: "等分析结论", at: null };
   stages.push(propose);
 
+  // 提案段判成终态（分析结论就是「不需要改」）时，评审/采纳也没有下一步可走：
+  // 留着 waiting 会让「下一步」一直催一个永远不会发生的动作。
+  const noProposalTerminal = propose.state === "ended";
+
   // 4. 评审：产物是 03-review.json；有提案但督导不在 = 需要重启恢复接手
-  const reviewStatus = review ? textOf(review.status, "未知") : null;
   let reviewStage: PipelineStage;
   if (reviewFile) {
     const failed = reviewStatus === "review_failed" || reviewStatus === "error";
+    const closed = reviewStatus === "skipped";
     reviewStage = {
       key: "review",
       label: LABELS.review,
-      state: failed ? "failed" : "done",
-      detail: `${reviewStatus}${textOf(review?.verdict) ? ` / ${textOf(review?.verdict)}` : ""}`,
+      state: failed ? "failed" : closed ? "ended" : "done",
+      detail: closed
+        ? `${proposalTimeout ? "没等到提案，跳过评审" : "跳过评审"}（${textOf(review?.reason, "无原因")}）`
+        : `${reviewStatus}${textOf(review?.verdict) ? ` / ${textOf(review?.verdict)}` : ""}`,
       at: reviewFile.at,
     };
   } else if (proposalFile) {
@@ -156,6 +185,8 @@ export function buildPipeline(input: PipelineInput): Pipeline {
       : input.autoReview === false
         ? { key: "review", label: LABELS.review, state: "skipped", detail: "自动评审关着：等人工 /skill-evolve approve", at: null }
         : { key: "review", label: LABELS.review, state: "blocked", detail: "提案在但督导不在：下次会话起点自动重挂", at: null };
+  } else if (noProposalTerminal) {
+    reviewStage = { key: "review", label: LABELS.review, state: "ended", detail: "没有提案，不需要评审", at: null };
   } else {
     reviewStage = { key: "review", label: LABELS.review, state: "waiting", detail: "等提案出来再评审", at: null };
   }
@@ -166,11 +197,13 @@ export function buildPipeline(input: PipelineInput): Pipeline {
   if (decision) {
     applyStage = { key: "apply", label: LABELS.apply, state: "done", detail: "04-decision.json 已写（技能文件已改）", at: decision.at };
   } else if (reviewStatus === "rejected" || input.status === "rejected") {
-    applyStage = { key: "apply", label: LABELS.apply, state: "skipped", detail: "评审驳回，不会采纳", at: null };
+    applyStage = { key: "apply", label: LABELS.apply, state: "ended", detail: "评审驳回：本轮到此结束，不会采纳", at: null };
   } else if (reviewStatus === "approved" || reviewStatus === "needs_human") {
     applyStage = input.queued === "pending" && input.autoApply !== false
       ? { key: "apply", label: LABELS.apply, state: "running", detail: "队列 pending，自动采纳正在走五闸", at: null }
       : { key: "apply", label: LABELS.apply, state: "blocked", detail: input.autoApply === false ? "自动采纳关着：等面板批准" : "已入队 pending，等采纳扫描", at: null };
+  } else if (noProposalTerminal) {
+    applyStage = { key: "apply", label: LABELS.apply, state: "ended", detail: "没有提案，不需要采纳", at: null };
   } else if (verify) {
     applyStage = { key: "apply", label: LABELS.apply, state: "blocked", detail: "五闸跑过但没写决定：看 06-verify.json", at: verify.at };
   } else {
@@ -191,6 +224,8 @@ function hintOf(stages: PipelineStage[]): string {
     stages.find((stage) => stage.state === "running" || stage.state === "blocked" || stage.state === "failed") ??
     stages.find((stage) => stage.state === "waiting");
   if (!first) {
+    const ended = stages.find((stage) => stage.state === "ended");
+    if (ended) return `本轮终态：${ended.label}「${ended.detail}」`;
     const skipped = stages.find((stage) => stage.state === "skipped");
     return skipped ? `流程结束：卡在「${skipped.label}」— ${skipped.detail}` : "流程走完：五段全部完成";
   }
@@ -199,11 +234,12 @@ function hintOf(stages: PipelineStage[]): string {
 
 /** 面板用的一句话：`派发✓ 分析✓ 提案✓ 评审… 采纳·`，一眼看出卡在哪 */
 export function renderPipelineLine(pipeline: Pipeline): string {
-  const mark: Record<StageState, string> = { done: "✓", running: "…", waiting: "·", blocked: "!", failed: "✗", skipped: "–" };
+  const mark: Record<StageState, string> = { done: "✓", running: "…", waiting: "·", blocked: "!", failed: "✗", skipped: "–", ended: "■" };
   return pipeline.stages.map((stage) => `${stage.label}${mark[stage.state]}`).join(" ");
 }
 
 /** 把 stages 折成「进度 3/5」这种数字，列表列用 */
 export function pipelineProgress(pipeline: Pipeline): { done: number; total: number } {
-  return { done: pipeline.stages.filter((stage) => stage.state === "done").length, total: pipeline.stages.length };
+  // 终态也算「走完了这一格」：进度条不该在正常结束的 run 上永远差一格
+  return { done: pipeline.stages.filter((stage) => stage.state === "done" || stage.state === "ended").length, total: pipeline.stages.length };
 }

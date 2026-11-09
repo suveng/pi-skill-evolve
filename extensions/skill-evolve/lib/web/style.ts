@@ -131,6 +131,9 @@ a.btn { display: inline-block; color: var(--blue); padding: 1px 8px; border: 1px
 .pipe .s-failed { border-top-color: var(--red) }
 .pipe .s-failed .ps { color: var(--red) }
 .pipe .s-waiting .ps, .pipe .s-skipped .ps { color: var(--muted) }
+/* 终态：正常结束（判定不需要改 / 评审驳回），不是漏跑，用中性灰蓝而不是「–」的灰 */
+.pipe .s-ended { border-top-color: #6b7a90 }
+.pipe .s-ended .ps { color: #9fb0c7 }
 /* 评审结论摘要：详情页里唯一「大一号」的正文，用户上来先读这一句 */
 .verdict-summary { margin: 6px 0; font-size: 15px; font-weight: 600; color: var(--fg) }
 a.run { color: #c8d3e6; border-bottom: 1px dashed #45505f }

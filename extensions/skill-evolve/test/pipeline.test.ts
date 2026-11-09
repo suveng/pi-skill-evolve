@@ -50,13 +50,17 @@ test("分析在跑：分析=进行中，提案=进行中（同一子进程）", 
   assert.match(pipeline.stages[0]!.detail, /4242 在跑/);
 });
 
-test("分析完成没提案（状态已 analyzed）：提案段是 skipped 终态，不催「下一步提案」", () => {
+test("分析完成没提案（状态已 analyzed）：提案段是 ended 终态，不催「下一步提案」", () => {
   const dir = runDir();
   write(dir, "01-findings.json", "{}");
   const pipeline = buildPipeline(input(dir));
   assert.equal(stateOf(pipeline, "analyze"), "done");
-  assert.equal(stateOf(pipeline, "propose"), "skipped");
+  assert.equal(stateOf(pipeline, "propose"), "ended");
   assert.match(pipeline.stages[2]!.detail, /不需要改/);
+  // 终态要传染：没有提案就不会有评审/采纳，「下一步」不该催它们
+  assert.equal(stateOf(pipeline, "review"), "ended");
+  assert.equal(stateOf(pipeline, "apply"), "ended");
+  assert.match(pipeline.hint, /^本轮终态/);
 });
 
 test("分析产物在但状态还 dispatched：提案段仍是 waiting（恢复会先补状态）", () => {
@@ -65,6 +69,18 @@ test("分析产物在但状态还 dispatched：提案段仍是 waiting（恢复�
   const pipeline = buildPipeline(input(dir, { status: "dispatched" }));
   assert.equal(stateOf(pipeline, "propose"), "waiting");
   assert.match(pipeline.stages[2]!.detail, /没写提案/);
+});
+
+test("督导等提案超时写 03-review(skipped/proposal-timeout)：提案与评审都是终态，明细说超时", () => {
+  const dir = runDir();
+  write(dir, "01-findings.json", "{}");
+  write(dir, "03-review.json", JSON.stringify({ status: "skipped", reason: "proposal-timeout" }));
+  const pipeline = buildPipeline(input(dir));
+  assert.equal(stateOf(pipeline, "propose"), "ended");
+  assert.match(pipeline.stages[2]!.detail, /超时/);
+  assert.equal(stateOf(pipeline, "review"), "ended");
+  assert.match(pipeline.stages[3]!.detail, /跳过评审/);
+  assert.equal(stateOf(pipeline, "apply"), "ended");
 });
 
 test("提案在、督导已死：评审判 blocked 且指向自动重挂（2026-11-09 事故现场）", () => {
@@ -95,7 +111,7 @@ test("自动评审关着：评审=跳过而不是卡住", () => {
   assert.match(pipeline.hint, /下一步「采纳」/);
 });
 
-test("评审驳回：采纳=跳过，hint 明说不会采纳", () => {
+test("评审驳回：采纳=终态，hint 明说不会采纳", () => {
   const dir = runDir();
   write(dir, "01-findings.json", "{}");
   write(dir, "02-proposal.json", "{}");
@@ -103,7 +119,7 @@ test("评审驳回：采纳=跳过，hint 明说不会采纳", () => {
   const pipeline = buildPipeline(input(dir, { status: "rejected" }));
   assert.equal(stateOf(pipeline, "review"), "done");
   assert.match(pipeline.stages[3]!.detail, /rejected \/ revise/);
-  assert.equal(stateOf(pipeline, "apply"), "skipped");
+  assert.equal(stateOf(pipeline, "apply"), "ended");
   assert.match(pipeline.hint, /驳回|不会采纳|结束/);
 });
 

@@ -219,6 +219,7 @@ const STAGE_WORD: Record<PipelineStage["state"], string> = {
   blocked: "卡住",
   failed: "失败",
   skipped: "跳过",
+  ended: "终态",
 };
 
 /**

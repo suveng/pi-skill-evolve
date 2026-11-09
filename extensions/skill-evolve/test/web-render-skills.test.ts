@@ -29,7 +29,6 @@ function row(name: string, parts: Partial<SkillRow> = {}): SkillRow {
     lastRunAt: null,
     hasPendingProposal: false,
     hasBaseline: false,
-    missingCursorStub: false,
     ...parts,
   };
 }
@@ -52,7 +51,6 @@ test("技能列表：六列齐全，技能名与最近 run 都能点进详情", 
         lastRunId: "354df7db-1794133942",
         lastRunAt: 1794133942865,
         hasPendingProposal: true,
-        missingCursorStub: true,
       }),
       row("quiet"),
     ]),
@@ -66,7 +64,7 @@ test("技能列表：六列齐全，技能名与最近 run 都能点进详情", 
   assert.match(html, /<a href="\/\?view=skill&amp;name=demo&amp;days=30">demo<\/a><\/td><td>4<\/td><td>1<\/td><td>25%<\/td>/);
   assert.match(html, /<a href="\/\?view=run&amp;runId=354df7db-1794133942">354df7db…3942<\/a>/);
   assert.match(html, /<span class="tag warn">有待批提案<\/span>/);
-  assert.match(html, /<span class="tag">缺 \.cursor stub<\/span>/);
+  assert.equal(html.includes(".cursor stub"), false, "缺 .cursor stub 检查已移除");
   // 没曝光的技能写「—」而不是 0%：0% 会被当成「一百次曝光一次没加载」
   assert.match(html, /<td><a href="\/\?view=skill&amp;name=quiet&amp;days=30">quiet<\/a><\/td><td>0<\/td><td>0<\/td><td>—<\/td>/);
 });

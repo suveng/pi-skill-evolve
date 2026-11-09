@@ -31,7 +31,6 @@ export function skillTags(row: SkillRow): string {
   const tags: string[] = [];
   if (row.hasPendingProposal) tags.push(`<span class="tag warn">有待批提案</span>`);
   if (row.hasBaseline) tags.push(`<span class="tag fail">存量违规</span>`);
-  if (row.missingCursorStub) tags.push(`<span class="tag">缺 .cursor stub</span>`);
   return tags.length > 0 ? tags.join(" ") : `<span class="hint">—</span>`;
 }
 

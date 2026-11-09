@@ -124,7 +124,7 @@ test("无遥测：事件数为 0，采集开关原样透传（页面据此区分
   assert.equal(readSkills(fixture.evolutionDir, { now: NOW, telemetryOn: true }).telemetryOn, true);
 });
 
-test("三个状态标签不合并：待批提案 / 存量违规 / 缺 .cursor stub 各自独立", () => {
+test("两个状态标签不合并：待批提案 / 存量违规 各自独立（.cursor stub 检查已移除）", () => {
   const fixture = workspace();
   makeSkill(fixture, "demo", { cursorStub: true });
   makeSkill(fixture, "other", { cursorStub: false });
@@ -152,34 +152,30 @@ test("三个状态标签不合并：待批提案 / 存量违规 / 缺 .cursor st
   const rows = readSkills(fixture.evolutionDir, { now: NOW });
   const byName = new Map(rows.rows.map((row) => [row.name, row]));
   assert.deepEqual(
-    [byName.get("demo")!.hasPendingProposal, byName.get("demo")!.hasBaseline, byName.get("demo")!.missingCursorStub],
-    [true, false, false],
+    [byName.get("demo")!.hasPendingProposal, byName.get("demo")!.hasBaseline],
+    [true, false],
   );
   assert.deepEqual(
-    [byName.get("other")!.hasPendingProposal, byName.get("other")!.hasBaseline, byName.get("other")!.missingCursorStub],
-    [false, true, true],
-    "一条技能可以同时违规又缺 stub：两件事的处置动作不同",
+    [byName.get("other")!.hasPendingProposal, byName.get("other")!.hasBaseline],
+    [false, true],
   );
   assert.equal(byName.get("third")!.hasPendingProposal, false, "status=rejected 的队列条目不算待批");
-  assert.equal(byName.get("third")!.missingCursorStub, false);
 
   const tags = (name: string): string => skillTags(byName.get(name)!);
   assert.match(tags("demo"), /有待批提案/);
   assert.equal(tags("demo").includes("存量违规"), false);
   assert.match(tags("other"), /存量违规/);
-  assert.match(tags("other"), /缺 \.cursor stub/);
+  assert.equal(tags("other").includes(".cursor"), false, "缺 .cursor stub 不再是一个标签");
   assert.equal(tags("third"), '<span class="hint">—</span>', "一个标签都没有时给破折号，不留空白");
 });
 
-test("缺 .cursor stub 的豁免名单：nested-agents-md / pi-deepseek-search 不报缺", () => {
+test("不再检查 .cursor stub：没有 stub 的技能也不挂标签", () => {
   const fixture = workspace();
   makeSkill(fixture, "nested-agents-md");
-  makeSkill(fixture, "pi-deepseek-search");
   makeSkill(fixture, "feishu-collab");
   const rows = new Map(readSkills(fixture.evolutionDir, { now: NOW }).rows.map((row) => [row.name, row]));
-  assert.equal(rows.get("nested-agents-md")!.missingCursorStub, false);
-  assert.equal(rows.get("pi-deepseek-search")!.missingCursorStub, false);
-  assert.equal(rows.get("feishu-collab")!.missingCursorStub, true);
+  assert.equal("missingCursorStub" in rows.get("feishu-collab")!, false);
+  assert.equal(skillTags(rows.get("feishu-collab")!), '<span class="hint">—</span>');
 });
 
 test("最近一次相关 run：取 proposal.skill 命中的最新一条，没有就是 null", () => {

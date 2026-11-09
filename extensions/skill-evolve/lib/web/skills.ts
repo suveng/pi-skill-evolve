@@ -25,12 +25,6 @@ export const DEFAULT_SKILL_DAYS = 30;
 /** 详情页要列历史提案，扫的 run 数比列表页多：一个技能一年可能被改几十次 */
 const RUN_SCAN_LIMIT = 200;
 
-/**
- * 允许没有 `.cursor/skills/<名>/SKILL.md` 的路由 stub 的技能。
- * 依据 AGENTS.md 明文例外：描述 pi 自身机制的技能不加 Cursor 路由（Cursor 没有对应物，加了是误导）。
- */
-const CURSOR_STUB_EXEMPT = new Set(["nested-agents-md", "pi-deepseek-search"]);
-
 export interface SkillRow {
   name: string;
   /** 曝光：最近 N 天里「含这个技能的 advertised 轮数」（同一轮重复只算一次，disabled 不计） */
@@ -164,7 +158,6 @@ export function readSkills(evolutionDir: string, options: SkillsOptions = {}): S
       lastRunAt: lastRun.get(name)?.at ?? null,
       hasPendingProposal: pending.has(name),
       hasBaseline: offending.has(name),
-      missingCursorStub: !CURSOR_STUB_EXEMPT.has(name) && !hasFile(path.join(root, ".cursor", "skills", name, "SKILL.md")),
     };
   });
   return { days, rows, telemetryOn: options.telemetryOn === true, events: events.length };

@@ -66,7 +66,7 @@ test("周报：连续 4 周零加载 -> 候选，并附引用面清单与描述�
     }),
   );
   assert.match(text, /零加载候选（近 4 周 曝光>0 且 加载=0）：/);
-  assert.match(text, /· dead-skill {2}\.cursor stub 缺 · AGENTS 索引 有 · 其它引用 2 处 · 描述重叠 alive-skill 0\.\d\d/);
+  assert.match(text, /· dead-skill {2}AGENTS 索引 有 · 其它引用 2 处 · 描述重叠 alive-skill 0\.\d\d/);
   assert.ok(!/· alive-skill/.test(text), "有加载的不进候选表");
 });
 
