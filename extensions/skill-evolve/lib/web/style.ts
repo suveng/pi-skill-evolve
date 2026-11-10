@@ -60,6 +60,9 @@ a.btn { display: inline-block; color: var(--blue); padding: 1px 8px; border: 1px
 .rows th { padding: 4px 10px; color: var(--muted); font-size: 12px; font-weight: 600; text-align: left;
   border-bottom: 1px solid var(--line) }
 .rows td { padding: 8px 10px; border-bottom: 1px solid #1b2029; white-space: nowrap; vertical-align: middle }
+/* 配置页的「说明」列文字最长：单行不换行会被右边界裁掉（2026-11-10 实测 1180 宽就裁），
+   所以只有它允许折行；列表页其它列仍保持单行，扫起来才不乱 */
+.rows td.hint-cell { white-space: normal; word-break: break-word }
 .rows tbody tr:hover { background: #1b2029 }
 .rows .status { width: 112px }
 /* 单条会话的 run 不进组，会话名就写在状态格里一行小字（窄屏也不隐藏） */

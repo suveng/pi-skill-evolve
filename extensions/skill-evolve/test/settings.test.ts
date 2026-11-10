@@ -174,6 +174,8 @@ test("renderSettingsPage：可写实例渲染表单与 csrf，只读实例不渲
     assert.ok(editable.includes(field), `缺少字段 ${field}`);
   }
   assert.ok(editable.includes("重启面板"), "端口改动要提示重启");
+  // 说明列必须允许折行：.rows td 是全局 nowrap，1180 宽实测会把最长那列裁掉（2026-11-10 截图复现）
+  assert.equal(editable.split('class="hint-cell"').length - 1, 8, "八项说明都应挂 hint-cell，才会折行不被裁");
 
   const readonly = renderSettingsPage(readSettings(dir), state, {});
   assert.ok(!readonly.includes('action="/config"'), "只读实例不该有表单");

@@ -46,7 +46,7 @@ function numRow(
 <td>${escapeHtml(label)}</td>
 <td><input name="${key}" value="${value}" size="14" inputmode="numeric"></td>
 <td>${escapeHtml(range)}</td>
-<td>${escapeHtml(effect)}</td>
+<td class="hint-cell">${escapeHtml(effect)}</td>
 </tr>`;
 }
 
@@ -66,13 +66,13 @@ function formSection(values: SettingsValues, csrf: string): string {
 <td>提案模型</td>
 <td><input name="propose" value="${escapeHtml(values.propose)}" size="34" spellcheck="false"></td>
 <td>provider/id</td>
-<td>出提案用哪个模型；${INHERIT} = 跟随主会话</td>
+<td class="hint-cell">出提案用哪个模型；${INHERIT} = 跟随主会话</td>
 </tr>
 <tr>
 <td>评审模型</td>
 <td><input name="review" value="${escapeHtml(values.review)}" size="34" spellcheck="false"></td>
 <td>provider/id</td>
-<td>评审用哪个模型；与提案用同一个模型时独立性有限</td>
+<td class="hint-cell">评审用哪个模型；与提案用同一个模型时独立性有限</td>
 </tr>
 ${numRow("idleMs", "空闲去抖（毫秒）", values.idleMs, `${idle.min}–${idle.max}（${humanMs(idle.min)}–${humanMs(idle.max)}）`, "会话空闲这么久才派发复盘；越小越灵敏，但每回合都可能触发")}
 ${numRow("maxRuntimeMs", "单轮上限（毫秒）", values.maxRuntimeMs, `${runtime.min}–${runtime.max}（${humanMs(runtime.min)}–${humanMs(runtime.max)}）`, "复盘子进程超过它就判卡死（stale），可被清理")}
