@@ -61,6 +61,8 @@ export interface EvolutionConfig {
   perSessionCap: number;
   /** 趋势统计的回看天数（`/skill-evolve report --week` 的指标窗口）：默认 28 天 */
   metricsWindowDays: number;
+  /** 采纳前备份保留天数（`backups/<runId>/`）：默认 3 天，超期在 session_start 清掉 */
+  backupRetentionDays: number;
   /** L0 遥测采集开关（默认关：采集会在 `.pi/evolution/telemetry/` 落盘；`collect` 只切它） */
   telemetry: boolean;
   /** 自动评审开关（默认开：复盘出了提案就起评审督导；关掉后 run 停在 proposed 等人工批准） */
@@ -80,6 +82,8 @@ export const DEFAULT_CONFIG: Readonly<EvolutionConfig> = Object.freeze({
   perSessionCap: 20,
   // 28 天 = 四个整周，既够看出「这周比上周」又不至于把两个月前的旧账算进趋势（2026-11-10 搬上配置页）
   metricsWindowDays: 28,
+  // 3 天（2026-11-10 用户定）：回滚窗口靠 git 兜底，备份只留最近的
+  backupRetentionDays: 3,
   telemetry: false,
   // 自动评审默认关（2026-11-08 用户定）：评审本身也要起子进程再花一份 token，
   // 不能让「打开复盘」顺手把 token 翻倍。要评审就显式 `/skill-evolve review on`。
@@ -136,6 +140,8 @@ export function normalizeConfig(raw: unknown, log: (msg: string) => void = () =>
     perSessionCap: positiveInt(input.perSessionCap, DEFAULT_CONFIG.perSessionCap),
     // 窗口太短看不出趋势（<7 天不足一周对比）、太长等于把历史全算进来：越界回落默认值而不是静默截断
     metricsWindowDays: clampInt(input.metricsWindowDays, DEFAULT_CONFIG.metricsWindowDays, 7, 365),
+    // 0 天等于「刚备份就删」，365 以上等于不清理：两头都越界回落 3 天
+    backupRetentionDays: clampInt(input.backupRetentionDays, DEFAULT_CONFIG.backupRetentionDays, 1, 365),
     telemetry: bool(input.telemetry, DEFAULT_CONFIG.telemetry),
     autoReview: bool(input.autoReview, DEFAULT_CONFIG.autoReview),
     autoApply: bool(input.autoApply, DEFAULT_CONFIG.autoApply),
@@ -219,7 +225,7 @@ export async function saveConfigSwitch(
 }
 
 /**
- * 配置页一次保存七项（模型 / 去抖 / 上限 / 次数 / 窗口 / 端口）：**只写传进来的键**，其余键原样保留。
+ * 配置页一次保存八项（模型 / 去抖 / 上限 / 次数 / 窗口 / 备份保留 / 端口）：**只写传进来的键**，其余键原样保留。
  *
  * 嵌套键不能直接摊平写：`propose.model` 与 `review.model` 在 config.json 里是对象，
  * `web.port` 在 web 块里 —— 直接 `{...raw, port: x}` 会写出一个顶层 port，读的时候根本读不到。
@@ -236,6 +242,7 @@ export async function saveSettings(
   if (patch.maxRuntimeMs !== undefined) nextRaw.maxRuntimeMs = patch.maxRuntimeMs;
   if (patch.perSessionCap !== undefined) nextRaw.perSessionCap = patch.perSessionCap;
   if (patch.metricsWindowDays !== undefined) nextRaw.metricsWindowDays = patch.metricsWindowDays;
+  if (patch.backupRetentionDays !== undefined) nextRaw.backupRetentionDays = patch.backupRetentionDays;
   const block = (key: string): Record<string, unknown> => {
     const node = raw[key];
     return node && typeof node === "object" ? (node as Record<string, unknown>) : {};

@@ -47,6 +47,7 @@ test("readSettings：没有 config.json 时读出来的是默认值", () => {
   assert.equal(values.maxRuntimeMs, DEFAULT_CONFIG.maxRuntimeMs);
   assert.equal(values.perSessionCap, DEFAULT_CONFIG.perSessionCap);
   assert.equal(values.metricsWindowDays, 28);
+  assert.equal(values.backupRetentionDays, 3);
   assert.equal(values.port, DEFAULT_CONFIG.web.port);
 });
 
@@ -59,6 +60,7 @@ test("parseSettingsForm：六项都合法 → 全部进 patch", () => {
       maxRuntimeMs: "1800000",
       perSessionCap: "8",
       metricsWindowDays: "90",
+      backupRetentionDays: "7",
       port: "7799",
     }),
   );
@@ -71,6 +73,7 @@ test("parseSettingsForm：六项都合法 → 全部进 patch", () => {
     maxRuntimeMs: 1_800_000,
     perSessionCap: 8,
     metricsWindowDays: 90,
+    backupRetentionDays: 7,
     port: 7_799,
   });
 });
@@ -93,6 +96,8 @@ test("parseSettingsForm：一项非法 → 整份拒绝，错误里点名是哪�
     [{ perSessionCap: "3.5" }, "单会话次数"],
     [{ metricsWindowDays: "3" }, "趋势窗口"],
     [{ metricsWindowDays: "400" }, "趋势窗口"],
+    [{ backupRetentionDays: "0" }, "备份保留"],
+    [{ backupRetentionDays: "999" }, "备份保留"],
     [{ propose: "deepseek" }, "提案模型"],
     [{ review: "inherit/extra/path" }, "评审模型"],
   ];
@@ -120,7 +125,7 @@ test("saveSettings：按块合并 —— 模型写进 propose/review，端口写
     "utf8",
   );
 
-  await saveSettings(dir, { propose: "deepseek/deepseek-chat", port: 7799, perSessionCap: 6, metricsWindowDays: 14 }, queue);
+  await saveSettings(dir, { propose: "deepseek/deepseek-chat", port: 7799, perSessionCap: 6, metricsWindowDays: 14, backupRetentionDays: 5 }, queue);
   const raw = JSON.parse(fs.readFileSync(configFile(dir), "utf8")) as Record<string, unknown>;
   assert.deepEqual((raw.propose as Record<string, unknown>).model, "deepseek/deepseek-chat");
   assert.deepEqual((raw.web as Record<string, unknown>).port, 7_799);
@@ -134,6 +139,7 @@ test("saveSettings：按块合并 —— 模型写进 propose/review，端口写
   assert.equal(config.perSessionCap, 6);
   assert.equal(config.metricsWindowDays, 14);
   assert.equal(raw.metricsWindowDays, 14, "趋势窗口是顶层键，不能写进别的块");
+  assert.equal(config.backupRetentionDays, 5);
   assert.equal(loadModelConfig(dir).propose, "deepseek/deepseek-chat");
   assert.equal(loadModelConfig(dir).review, "inherit");
 });
@@ -154,6 +160,7 @@ test("settingsPatchText：报出改动了哪几项（303 横幅与审计用同�
   assert.equal(settingsPatchText({ port: 7799 }), "已保存：端口");
   assert.ok(settingsPatchText({ idleMs: 1, perSessionCap: 2 }).includes("空闲去抖"));
   assert.equal(settingsPatchText({ metricsWindowDays: 14 }), "已保存：趋势窗口");
+  assert.equal(settingsPatchText({ backupRetentionDays: 3 }), "已保存：备份保留");
 });
 
 test("renderSettingsPage：可写实例渲染表单与 csrf，只读实例不渲染表单", () => {
@@ -163,7 +170,7 @@ test("renderSettingsPage：可写实例渲染表单与 csrf，只读实例不渲
   assert.ok(editable.includes('action="/config"'));
   assert.ok(editable.includes('value="tok-1"'), "表单必须带 csrf");
   assert.ok(editable.includes("14 天") === false, "可写实例不摊只读表");
-  for (const field of ['name="propose"', 'name="review"', 'name="idleMs"', 'name="maxRuntimeMs"', 'name="perSessionCap"', 'name="metricsWindowDays"', 'name="port"']) {
+  for (const field of ['name="propose"', 'name="review"', 'name="idleMs"', 'name="maxRuntimeMs"', 'name="perSessionCap"', 'name="metricsWindowDays"', 'name="backupRetentionDays"', 'name="port"']) {
     assert.ok(editable.includes(field), `缺少字段 ${field}`);
   }
   assert.ok(editable.includes("重启面板"), "端口改动要提示重启");

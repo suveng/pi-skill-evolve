@@ -216,3 +216,10 @@ test("metricsWindowDays：默认 28，越界回落 28，合法值原样保留", 
   assert.equal(normalizeConfig({ metricsWindowDays: 400 }).metricsWindowDays, 28);
   assert.equal(normalizeConfig({ metricsWindowDays: "30" }).metricsWindowDays, 28, "字符串不是数字");
 });
+
+test("backupRetentionDays：默认 3，越界回落 3", () => {
+  assert.equal(normalizeConfig({}).backupRetentionDays, 3);
+  assert.equal(normalizeConfig({ backupRetentionDays: 10 }).backupRetentionDays, 10);
+  assert.equal(normalizeConfig({ backupRetentionDays: 0 }).backupRetentionDays, 3, "0 天等于刚备份就删");
+  assert.equal(normalizeConfig({ backupRetentionDays: 400 }).backupRetentionDays, 3);
+});

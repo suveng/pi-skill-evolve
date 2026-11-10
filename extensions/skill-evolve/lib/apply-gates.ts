@@ -45,7 +45,8 @@ export interface GateRun {
   detail?: string;
 }
 
-export const BACKUP_RETENTION_DAYS = 30;
+/** 备份默认保留天数（可被配置 `backupRetentionDays` 覆盖：默认 3 天，2026-11-10 用户定） */
+export const BACKUP_RETENTION_DAYS = 3;
 const DAY_MS = 86_400_000;
 
 export function backupRoot(evolutionDir: string): string {
@@ -56,8 +57,16 @@ export function backupDir(evolutionDir: string, runId: string): string {
   return path.join(backupRoot(evolutionDir), runId);
 }
 
-/** 备份 30 天清理：只在 session_start 调，删不掉就留到下次（不影响采纳） */
-export function cleanupBackups(evolutionDir: string, now: number, log: (msg: string) => void): number {
+/**
+ * 备份清理：只在 session_start 调，删不掉就留到下次（不影响采纳）。
+ * 保留天数由配置 `backupRetentionDays` 传入；不传时用 BACKUP_RETENTION_DAYS。
+ */
+export function cleanupBackups(
+  evolutionDir: string,
+  now: number,
+  log: (msg: string) => void,
+  retentionDays: number = BACKUP_RETENTION_DAYS,
+): number {
   let names: string[];
   try {
     names = fs.readdirSync(backupRoot(evolutionDir));
@@ -68,14 +77,14 @@ export function cleanupBackups(evolutionDir: string, now: number, log: (msg: str
   for (const name of names) {
     const dir = path.join(backupRoot(evolutionDir), name);
     try {
-      if (now - fs.statSync(dir).mtimeMs <= BACKUP_RETENTION_DAYS * DAY_MS) continue;
+      if (now - fs.statSync(dir).mtimeMs <= retentionDays * DAY_MS) continue;
       fs.rmSync(dir, { recursive: true, force: true });
       removed += 1;
     } catch {
       // 单个目录清不掉不影响采纳
     }
   }
-  if (removed > 0) log(`[skill-evolve] 清理 ${removed} 个超过 ${BACKUP_RETENTION_DAYS} 天的备份`);
+  if (removed > 0) log(`[skill-evolve] 清理 ${removed} 个超过 ${retentionDays} 天的备份`);
   return removed;
 }
 

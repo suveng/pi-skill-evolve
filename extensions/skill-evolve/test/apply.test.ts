@@ -243,7 +243,7 @@ test("排除删除提案：+++ /dev/null 不在这里执行（删技能必须走
   assert.match(plan.reason ?? "", /--prune/);
 });
 
-test("runGates 备份清理只删超过 30 天的目录", () => {
+test("runGates 备份清理只删超过保留天数的目录", () => {
   const fixture = setup();
   const root = path.join(fixture.evolutionDir, "backups");
   const oldDir = path.join(root, "old");
@@ -257,6 +257,24 @@ test("runGates 备份清理只删超过 30 天的目录", () => {
   assert.equal(fs.existsSync(oldDir), false);
   assert.equal(fs.existsSync(freshDir), true);
   assert.equal(messages.length, 1);
+});
+
+/**
+ * 保留天数可配（2026-11-10 用户定默认 3 天）：同一个 5 天前的备份，
+ * 保留 7 天时留着、保留 3 天时删掉 —— 判据必须是传进来的天数，不是常量。
+ */
+test("cleanupBackups 按传入的保留天数判断，不再写死常量", () => {
+  const fixture = setup();
+  const root = path.join(fixture.evolutionDir, "backups");
+  const dir = path.join(root, "five-days");
+  fs.mkdirSync(dir, { recursive: true });
+  const five = new Date(NOW - 5 * 86_400_000);
+  fs.utimesSync(dir, five, five);
+
+  assert.equal(cleanupBackups(fixture.evolutionDir, NOW, () => {}, 7), 0, "保留 7 天：5 天前的不该删");
+  assert.equal(fs.existsSync(dir), true);
+  assert.equal(cleanupBackups(fixture.evolutionDir, NOW, () => {}, 3), 1, "保留 3 天：5 天前的要删");
+  assert.equal(fs.existsSync(dir), false);
 });
 
 test("runGates 闸2 前会复核磁盘内容：中途被改过就拒写，不给别人覆盖", async () => {

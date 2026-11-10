@@ -155,6 +155,8 @@ export function createEvolution(deps: EvolutionDeps): Evolution {
     queue: deps.queue,
     // 传 getter：review / apply 中途开关后，下一轮扫描立刻按新值走
     flags: () => ({ autoReview: config.autoReview, autoApply: config.autoApply }),
+    // 备份保留天数同样走 getter：与 on/off 一样是「改了立刻生效」
+    retentionDays: () => config.backupRetentionDays,
     log,
     now,
     git: deps.git ?? createGitRunner(),

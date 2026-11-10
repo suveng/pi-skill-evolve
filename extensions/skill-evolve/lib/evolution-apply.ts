@@ -260,7 +260,7 @@ export function createApplyTools(deps: ApplyToolsDeps): ApplyTools {
   const sessionStart: ApplyTools["sessionStart"] = () => {
     const time = now();
     try {
-      cleanupBackups(deps.evolutionDir, time, log);
+      cleanupBackups(deps.evolutionDir, time, log, deps.retentionDays?.());
     } catch (error) {
       log(`[skill-evolve] 备份清理失败：${String(error)}`);
     }
