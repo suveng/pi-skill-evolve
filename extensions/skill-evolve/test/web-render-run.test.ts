@@ -210,3 +210,30 @@ test("详情页不高亮任何 tab：点上去回不到这一页，highligh 就�
   const nav = html.slice(html.indexOf("<nav>"), html.indexOf("</nav>"));
   assert.equal(nav.includes('class="active"'), false);
 });
+
+/**
+ * 「等面板批准」的断点修复（2026-11-10）：采纳段卡在等人时，批准 / 拒绝按钮必须就在这句话下面。
+ * 反过来也断言：没有注入写回调（只读实例）时不能出现按钮，否则点了必然 403。
+ */
+test("卡在等面板批准：给了 write 就渲染批准 / 拒绝，没给就不渲染", () => {
+  const blocked = detail({
+    pipeline: {
+      stages: [
+        { key: "dispatch", label: "派发", state: "done", detail: "复盘子进程 pid 65757 已退出", at: 1794133942865 },
+        { key: "analyze", label: "分析", state: "done", detail: "01-findings.json 已落盘", at: 1794134000000 },
+        { key: "propose", label: "提案", state: "done", detail: "improve → demo", at: 1794134050000 },
+        { key: "review", label: "评审", state: "done", detail: "approved / pass", at: 1794134158913 },
+        { key: "apply", label: "采纳", state: "blocked", detail: "自动采纳关着：等面板批准", at: null },
+      ],
+      hint: "下一步「采纳」— 自动采纳关着：等面板批准",
+    },
+  });
+  const html = renderRunPage(blocked, { state: state(), write: { csrf: "tok-9" } });
+  assert.match(html, /<form method="post" action="\/approve">/);
+  assert.match(html, /<form method="post" action="\/reject">/);
+  assert.match(html, /name="runId" value="354df7db-1794133942"/);
+  assert.match(html, /name="csrf" value="tok-9"/);
+
+  const readonly = renderRunPage(blocked, { state: state() });
+  assert.equal(readonly.includes('action="/approve"'), false, "只读实例不该给一个点了必然 403 的按钮");
+});

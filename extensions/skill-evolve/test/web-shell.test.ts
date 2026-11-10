@@ -1,6 +1,6 @@
 /**
- * 页面骨架与导航：六个 tab 的顺序与高亮、状态栏里的两个跳转、`?view=` 白名单。
- * 「已采纳」必须是独立 tab（用户原话：已采纳的 tab 单独出来），技能管理排最后。
+ * 页面骨架与导航：七个 tab 的顺序与高亮、状态栏里的两个跳转、`?view=` 白名单。
+ * 「已采纳」必须是独立 tab（用户原话：已采纳的 tab 单独出来）；技能管理之后是设置页（2026-11-10 新增）。
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -19,13 +19,13 @@ function state(): WebState {
   };
 }
 
-test("六个 tab：待处理 / 待审批 / 已采纳 / 已处理 / 复盘报告 / 技能管理", () => {
-  assert.deepEqual([...TAB_ORDER], ["pending", "approvals", "applied", "done", "reports", "skills"]);
+test("七个 tab：待处理 / 待审批 / 已采纳 / 已处理 / 复盘报告 / 技能管理 / 设置", () => {
+  assert.deepEqual([...TAB_ORDER], ["pending", "approvals", "applied", "done", "reports", "skills", "settings"]);
   assert.deepEqual(
     TAB_ORDER.map((item) => VIEW_LABEL[item]),
-    ["待处理", "待审批", "已采纳", "已处理", "复盘报告", "技能管理"],
+    ["待处理", "待审批", "已采纳", "已处理", "复盘报告", "技能管理", "设置"],
   );
-  assert.equal(tabs("applied").split("\n").length, 6, "不能有第七个 tab 或漏掉一个");
+  assert.equal(tabs("applied").split("\n").length, 7, "不能有第八个 tab 或漏掉一个");
 });
 
 test("高亮只落在当前 tab 上；详情页（active=null）一个都不高亮", () => {

@@ -179,7 +179,7 @@ export function parseView(raw: string | null): WebView {
  * 详情页（run / skill / session）与技能管理页**需要额外参数**（runId / name / days / sessionId），
  * 所以它们不能进 `VIEW_ORDER`, 也不能靠 `parseView` 认 —— 这是两件事，两个函数各自负责一件事。
  */
-export const PANEL_VIEWS = [...WEB_VIEWS, "skills", "skill", "run", "session"] as const;
+export const PANEL_VIEWS = [...WEB_VIEWS, "skills", "skill", "run", "session", "settings"] as const;
 export type PanelView = (typeof PANEL_VIEWS)[number];
 
 /** `?view=` → 全页面名；只认白名单，其余（含 null、`../`）回落待处理页 */
@@ -191,9 +191,9 @@ export function parsePanelView(raw: string | null): PanelView {
  * 303 回跳只能落在「能显示横幅」的页：列表页 + 技能管理。
  * 详情页回跳会丢参数（`?view=run` 没有 runId 就是 404），所以它们一律归一成待处理页。
  */
-export function parseRedirectView(raw: string | null): WebView | "skills" {
+export function parseRedirectView(raw: string | null): WebView | "skills" | "settings" {
   const view = parsePanelView(raw);
-  if (view === "skills") return "skills";
+  if (view === "skills" || view === "settings") return view;
   return (WEB_VIEWS as readonly string[]).includes(view) ? (view as WebView) : "pending";
 }
 

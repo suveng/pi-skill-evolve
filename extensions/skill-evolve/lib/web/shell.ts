@@ -12,7 +12,7 @@ import type { WebState, WebView } from "./data.ts";
 import { STYLE } from "./style.ts";
 
 /** 导航里的 tab 与顺序（用户 2026-11-08 点名要的顺序：已采纳独立、技能管理排最后） */
-export const TAB_ORDER = ["pending", "approvals", "applied", "done", "reports", "skills"] as const;
+export const TAB_ORDER = ["pending", "approvals", "applied", "done", "reports", "skills", "settings"] as const;
 export type TabView = (typeof TAB_ORDER)[number];
 
 export const VIEW_LABEL: Record<TabView, string> = {
@@ -22,6 +22,7 @@ export const VIEW_LABEL: Record<TabView, string> = {
   done: "已处理",
   reports: "复盘报告",
   skills: "技能管理",
+  settings: "设置",
 };
 
 /** 每个 tab 的计数徽章；`skills` 没有计数（它不是「条数」） */
@@ -31,7 +32,7 @@ export type TabCounts = Partial<Record<TabView, number>>;
  * 当前高亮的 tab。详情页传 `null`：它们不在导航里（要 runId / 技能名才能进来），
  * 硬highlight 某个 tab 等于骗人 —— 点那个 tab 回不到这一页。
  */
-export type ActiveTab = WebView | "skills" | null;
+export type ActiveTab = WebView | "skills" | "settings" | null;
 
 /** 计数从状态里取：tab 上的数字与列表里的条数必须是同一份数据，不能各算一遍 */
 export function tabCounts(state: WebState): TabCounts {

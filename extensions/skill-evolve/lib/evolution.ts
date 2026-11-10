@@ -5,7 +5,8 @@
  * 这样门禁逻辑能被 node --test 直接跑，不依赖 `@earendil-works/pi-coding-agent` 的可解析性。
  */
 import * as path from "node:path";
-import { configFile, loadConfig, saveConfigSwitch, saveFlag, type ConfigFlag, type EvolutionConfig } from "./config.ts";
+import { configFile, loadConfig, saveConfigSwitch, saveFlag, saveSettings, type ConfigFlag, type EvolutionConfig } from "./config.ts";
+import type { SettingsPatch } from "./settings.ts";
 import type { Attribution } from "./attribution.ts";
 import { baselinePath, createBaselineGate } from "./baseline.ts";
 import { isChildProcess } from "./child-env.ts";
@@ -279,6 +280,15 @@ export function createEvolution(deps: EvolutionDeps): Evolution {
   };
 
   /**
+   * 配置页保存六项：与命令共用同一份写入（`saveSettings` 负责按块合并与归一化），
+   * 这里只负责把结果并回正在用的那份配置，让「保存完立刻生效」对当前会话也成立。
+   */
+  const setSettings = async (patch: SettingsPatch): Promise<string> => {
+    Object.assign(config, await saveSettings(evolutionDir, patch, deps.queue));
+    return `配置已保存：${configFile(evolutionDir)}（当前会话立即生效；改端口要重启面板）`;
+  };
+
+  /**
    * 重启 / 重载后的接手：只补状态与重挂督导师，绝不重跑复盘。
    * 同步抛错也在这里吞：会话起点不能被恢复流程搞挂。
    */
@@ -320,6 +330,7 @@ export function createEvolution(deps: EvolutionDeps): Evolution {
     acceptBaseline,
     setEnabled,
     setFlag,
+    setSettings,
     model: modelTools,
     apply: applyTools,
     observe: observer,

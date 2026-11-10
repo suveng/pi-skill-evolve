@@ -226,7 +226,7 @@ const STAGE_WORD: Record<PipelineStage["state"], string> = {
  * 流水线：页面顶部那一排。放在概要**之前**是因为用户点进详情页的第一个问题永远是
  * 「它现在到哪一步了」，而不是「pid 是多少」。每格给状态词 + 明细，卡住的那格直接写出下一步谁接手。
  */
-function pipelineSection(pipeline: Pipeline): string {
+function pipelineSection(pipeline: Pipeline, write: { csrf: string; runId: string } | null): string {
   const cells = pipeline.stages
     .map((stage) => {
       const at = stage.at === null ? "" : `<span class="pt">${escapeHtml(formatStamp(stage.at))}</span>`;
@@ -244,7 +244,37 @@ ${at}
 <ol class="pipe">
 ${cells}
 </ol>
+${gateAction(pipeline, write)}
 </section>`;
+}
+
+/**
+ * 「下一步说要等面板批准」时，把批准/拒绝按钮就放在这句话下面（2026-11-10）。
+ *
+ * 这里原来是个断点：采纳段写「自动采纳关着：等面板批准」，但详情页没有任何按钮，
+ * 批准按钮只在待审批列表页出现 —— 用户从一个明确写着「等你点」的页面被推去另一页找那一行。
+ * 判据只看**采纳段是不是卡在等人**：其它阻塞（缺 04-decision、五闸没写决定）都不该给这两个按钮，
+ * 点了也只会换回一句报错。
+ */
+function gateAction(pipeline: Pipeline, write: { csrf: string; runId: string } | null): string {
+  if (write === null) return "";
+  const apply = pipeline.stages.find((stage) => stage.key === "apply");
+  if (!apply || apply.state !== "blocked" || !apply.detail.includes("等面板批准")) return "";
+  return `<div class="ctl">
+<form method="post" action="/approve">
+<input type="hidden" name="csrf" value="${escapeHtml(write.csrf)}">
+<input type="hidden" name="runId" value="${escapeHtml(write.runId)}">
+<input type="hidden" name="view" value="approvals">
+<button type="submit">批准并采纳</button>
+</form>
+<form method="post" action="/reject">
+<input type="hidden" name="csrf" value="${escapeHtml(write.csrf)}">
+<input type="hidden" name="runId" value="${escapeHtml(write.runId)}">
+<input type="hidden" name="view" value="approvals">
+<button type="submit" class="reject">拒绝</button>
+</form>
+</div>
+<p class="hint">批准 = 在 TUI 敲 <code>/skill-evolve approve ${escapeHtml(write.runId)}</code>，走同一套五道闸；拒绝只改队列状态，不动任何技能文件。</p>`;
 }
 
 export interface RenderRunOptions {
@@ -252,13 +282,15 @@ export interface RenderRunOptions {
   state: WebState;
   /** 返回列表页的链接文案来源：从哪一页点进来的（缺省回待处理） */
   back?: { view: string; label: string };
+  /** 写回调与 csrf 都在时，卡在「等面板批准」的 run 才渲染批准/拒绝按钮 */
+  write?: { csrf: string };
 }
 
 export function renderRunPage(detail: RunDetail, options: RenderRunOptions): string {
   const back = options.back ?? { view: "pending", label: "待处理" };
   const body = `<main class="run">
 <p class="hint"><a href="/?view=${escapeHtml(back.view)}">← 回${escapeHtml(back.label)}</a></p>
-${pipelineSection(detail.pipeline)}
+${pipelineSection(detail.pipeline, options.write ? { csrf: options.write.csrf, runId: detail.runId } : null)}
 ${overview(detail)}
 ${diffSection(detail)}
 ${candidateSection(detail)}
@@ -271,6 +303,8 @@ ${findingsSection(detail)}
     title: `run ${detail.runId}`,
     active: null,
     body,
-    foot: `本页只读：diff 与全文来自 <code>runs/${escapeHtml(detail.runId)}</code>，页面不写任何文件。`,
+    foot: options.write
+      ? `本页只对「等面板批准」的 run 提供批准 / 拒绝（与 TUI 走同一条路）；其余内容来自 <code>runs/${escapeHtml(detail.runId)}</code>，页面不写任何文件。`
+      : `本页只读：diff 与全文来自 <code>runs/${escapeHtml(detail.runId)}</code>，页面不写任何文件。`,
   });
 }

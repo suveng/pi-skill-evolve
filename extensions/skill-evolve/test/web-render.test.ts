@@ -103,7 +103,7 @@ test("六个视图：tab 顺序是 待处理 / 待审批 / 已采纳 / 已处理
   // 只扫 nav：状态栏与页脚里也有 /?view=approvals 链接，整页扫会把它们算进来
   const nav = html.slice(html.indexOf('<nav class="tabs">'), html.indexOf("</nav>"));
   const order = [...nav.matchAll(/<a href="\/\?view=(\w+)"/g)].map((match) => match[1]);
-  assert.deepEqual(order, ["pending", "approvals", "applied", "done", "reports", "skills"]);
+  assert.deepEqual(order, ["pending", "approvals", "applied", "done", "reports", "skills", "settings"]);
 });
 
 test("空态：每个列表视图各有一句人话", () => {

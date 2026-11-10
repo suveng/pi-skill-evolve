@@ -14,7 +14,7 @@ export const AUDIT_FILE = "actions.log";
 /** 读尾部窗口：够装上千条动作，又不至于让一页面板去读一个几百 MB 的日志 */
 const READ_WINDOW_BYTES = 64 * 1024;
 
-export const AUDIT_ACTIONS = ["toggle", "run", "rerun", "cleanup", "approve", "reject"] as const;
+export const AUDIT_ACTIONS = ["toggle", "run", "rerun", "cleanup", "approve", "reject", "config"] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
 /**

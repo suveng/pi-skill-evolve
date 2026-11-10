@@ -104,6 +104,7 @@ export default function skillEvolve(pi: ExtensionAPI): void {
         // 会话文件为空是允许的：派发时按「没有索引」处理，不会因为从网页点就少走一道
         onRunNow: () => evo.runNow({ sessionId: "web-panel" }),
         onCleanup: async (runId) => moveRunToTrash(evolutionDirOf(cwd), runId),
+        onSettings: (patch) => evo.setSettings(patch), // 配置页六项：校验在 web 层，写盘与命令同一条路
       });
     },
   });

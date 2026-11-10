@@ -16,6 +16,7 @@ import { loadConfig, type ConfigFlag } from "../config.ts";
 import { FLAG_FIELDS, parseFlag } from "../flags.ts";
 import { appendAudit, type AuditAction, type AuditResult } from "./audit-log.ts";
 import { parseRedirectView } from "./filter.ts";
+import { parseSettingsForm, type SettingsPatch } from "../settings.ts";
 import { FORM_TYPE, MAX_BODY_BYTES, readBody, sendBack, sendText, sourceDenied } from "./http.ts";
 import { readJson } from "./json-read.ts";
 import { resolveRunDir } from "./run-path.ts";
@@ -33,6 +34,8 @@ export type WebAction = (runId: string) => Promise<string>;
 export type ToggleHook = (field: ConfigFlag, next: boolean) => Promise<string>;
 /** 立即复盘 / 重跑：都是「触发一次新的复盘」，由 index.ts 接 evo.runNow */
 export type RunHook = () => Promise<string>;
+/** 配置页保存：由 index.ts 接 evo.setSettings —— 与命令走同一份写入实现（含队列与归一化） */
+export type SettingsHook = (patch: SettingsPatch) => Promise<string>;
 
 export interface WriteHooks {
   /** 批准：由扩展注入 evo.apply.approve(runId, false)，与 TUI 同一条路 */
@@ -43,6 +46,8 @@ export interface WriteHooks {
   onRunNow?: RunHook;
   /** 清理记录：只对 stale 放行，实现是把 run 目录移进 runs/.trash/ */
   onCleanup?: WebAction;
+  /** 配置页保存：六项校验在 web 层，写盘与归一化走 evo.setSettings */
+  onSettings?: SettingsHook;
 }
 
 export interface WriteContext extends WriteHooks {
@@ -52,7 +57,7 @@ export interface WriteContext extends WriteHooks {
   port(): number;
 }
 
-const POST_PATHS = new Set(["/approve", "/reject", "/action", "/toggle"]);
+const POST_PATHS = new Set(["/approve", "/reject", "/action", "/toggle", "/config"]);
 /** 与 lib/report.ts 的 renderManualDispatch 首行对齐：能派发才是 ok，其余都是 partial */
 const DISPATCHED_PREFIX = "已派生复盘：";
 /** `child.log` 优先，其次 `supervisor.log`：前者是子进程自己的输出，会话细节都在里面 */
@@ -219,6 +224,30 @@ async function handleToggleField(
 }
 
 /**
+ * `POST /config`：配置页一次保存六项。**任何一项不合法就整份拒绝**（见 lib/settings.ts）：
+ * 半份生效会让人分不清「我改的那个到底进没进」，下一次再改又是基于这份半成品。
+ */
+async function handleConfig(
+  ctx: WriteContext,
+  response: http.ServerResponse,
+  form: URLSearchParams,
+  view: ReturnType<typeof parseRedirectView>,
+): Promise<void> {
+  const parsed = parseSettingsForm(form);
+  if (!parsed.ok) {
+    reject(ctx, response, "config", parsed.error);
+    return;
+  }
+  if (Object.keys(parsed.patch).length === 0) {
+    reject(ctx, response, "config", "六项都没有变化（表单是空的）");
+    return;
+  }
+  const save = ctx.onSettings;
+  if (!save) return rejectReadOnly(response);
+  await settle(ctx, response, "config", view, () => save(parsed.patch));
+}
+
+/**
  * POST 总入口。校验顺序与历史一致：路径白名单 → Content-Type → Host/Origin → 体积 → csrf，
  * 之后才看「这个动作有没有实现」。顺序本身就是信息：csrf 不对的请求连 runId 都不该被读。
  */
@@ -230,7 +259,7 @@ export async function handlePost(
 ): Promise<void> {
   if (!POST_PATHS.has(url.pathname)) {
     response.setHeader("allow", "GET");
-    sendText(response, 405, "405：面板只提供 GET，写操作只有 /approve、/reject、/action 与 /toggle?field=\n");
+    sendText(response, 405, "405：面板只提供 GET，写操作只有 /approve、/reject、/action、/toggle?field= 与 /config\n");
     return;
   }
   const type = String(request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
@@ -256,6 +285,11 @@ export async function handlePost(
   }
   if (url.pathname === "/toggle") {
     await handleToggleField(ctx, response, form, url);
+    return;
+  }
+  if (url.pathname === "/config") {
+    // 保存后回设置页：保存成功/失败的横幅只在这一页有意义
+    await handleConfig(ctx, response, form, parseRedirectView(form.get("view")));
     return;
   }
   if (url.pathname === "/action") {

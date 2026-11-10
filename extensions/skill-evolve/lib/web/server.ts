@@ -3,7 +3,7 @@
  *
  * 六条硬边界：
  * 1. **只绑 127.0.0.1 且不做鉴权**：面板能看到会话摘要与技能 diff，凭据换不来安全，绑地址才是；
- * 2. **写操作只有四个入口**：`POST /approve`、`POST /reject`、`POST /action`、`POST /toggle?field=`，
+ * 2. **写操作只有五个入口**：`POST /approve`、`POST /reject`、`POST /action`、`POST /toggle?field=`、`POST /config`，
  *    其余路径一律 405；
  *    GET 路由是白名单（`/`、`/api/state`、`/log`、`/diff`），绝不把 runs/ 当静态文件服务 ——
  *    那等于把 `.pi/evolution` 整个暴露成文件下载器（`/log` 只回两个日志文件的末 200 行、
@@ -26,6 +26,8 @@ import { parseListExtras } from "./list-query.ts";
 import { HTML_TYPE, MAX_BODY_BYTES, TEXT_TYPE, sendText } from "./http.ts";
 import { clearWebPid, isAlive, readWebPid, writeWebPid } from "./panel-pid.ts";
 import { renderPage } from "./render.ts";
+import { renderSettingsPage } from "./render-settings.ts";
+import { readSettings } from "../settings.ts";
 import { renderRunPage } from "./render-run.ts";
 import { renderSessionPage } from "./render-session.ts";
 import { renderSkillPage, renderSkillsPage } from "./render-skills.ts";
@@ -110,7 +112,26 @@ function renderGet(ctx: RouteContext, url: URL): GetResult {
     const runId = url.searchParams.get("runId") ?? "";
     const detail = readRunDetail(ctx.evolutionDir, runId);
     if (!detail) return { status: 404, body: `404：没有这个 run（runId=${runId}）\n`, type: TEXT_TYPE };
-    return { status: 200, body: renderRunPage(detail, { state }), type: HTML_TYPE };
+    return {
+      status: 200,
+      body: renderRunPage(detail, {
+        state,
+        // 「等面板批准」的 run 在详情页就能点批准：判据与按钮都在 render-run.ts 里
+        ...(writable(ctx) ? { write: { csrf: ctx.csrf } } : {}),
+      }),
+      type: HTML_TYPE,
+    };
+  }
+  if (view === "settings") {
+    return {
+      status: 200,
+      body: renderSettingsPage(readSettings(ctx.evolutionDir), state, {
+        csrf: ctx.csrf,
+        canWrite: writable(ctx) && Boolean(ctx.onSettings),
+        notice,
+      }),
+      type: HTML_TYPE,
+    };
   }
   if (view === "skills") {
     const skills = readSkills(ctx.evolutionDir, { days, telemetryOn: controls.telemetry });
@@ -234,6 +255,7 @@ export function startWebPanel(options: WebPanelOptions): Promise<WebPanelResult>
     ...(options.onToggle ? { onToggle: options.onToggle } : {}),
     ...(options.onRunNow ? { onRunNow: options.onRunNow } : {}),
     ...(options.onCleanup ? { onCleanup: options.onCleanup } : {}),
+    ...(options.onSettings ? { onSettings: options.onSettings } : {}),
     port: () => actualPort,
   };
   const server = http.createServer((request, response) => {

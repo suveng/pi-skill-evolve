@@ -16,6 +16,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { MutationQueue } from "./telemetry.ts";
+import type { SettingsPatch } from "./settings.ts";
 
 /**
  * TUI 推送开关（用户 2026-11-08：「tui 的这些推送不看了，影响我」）：两个都默认 false。
@@ -200,6 +201,39 @@ export async function saveConfigSwitch(
   await queue(file, async () => {
     await fs.promises.mkdir(evolutionDir, { recursive: true });
     await fs.promises.writeFile(file, `${JSON.stringify({ ...raw, ...next }, null, 2)}\n`, "utf8");
+  });
+  return next;
+}
+
+/**
+ * 配置页一次保存六项（模型 / 去抖 / 上限 / 次数 / 端口）：**只写传进来的键**，其余键原样保留。
+ *
+ * 嵌套键不能直接摊平写：`propose.model` 与 `review.model` 在 config.json 里是对象，
+ * `web.port` 在 web 块里 —— 直接 `{...raw, port: x}` 会写出一个顶层 port，读的时候根本读不到。
+ * 所以先按块合并，再交给 `normalizeConfig` 归一化，最后把归一化结果盖回原始对象上（未知键保留）。
+ */
+export async function saveSettings(
+  evolutionDir: string,
+  patch: SettingsPatch,
+  queue: MutationQueue,
+): Promise<EvolutionConfig> {
+  const raw = readRawConfig(evolutionDir);
+  const nextRaw: Record<string, unknown> = { ...raw };
+  if (patch.idleMs !== undefined) nextRaw.idleMs = patch.idleMs;
+  if (patch.maxRuntimeMs !== undefined) nextRaw.maxRuntimeMs = patch.maxRuntimeMs;
+  if (patch.perSessionCap !== undefined) nextRaw.perSessionCap = patch.perSessionCap;
+  const block = (key: string): Record<string, unknown> => {
+    const node = raw[key];
+    return node && typeof node === "object" ? (node as Record<string, unknown>) : {};
+  };
+  if (patch.propose !== undefined) nextRaw.propose = { ...block("propose"), model: patch.propose };
+  if (patch.review !== undefined) nextRaw.review = { ...block("review"), model: patch.review };
+  if (patch.port !== undefined) nextRaw.web = { ...block("web"), port: patch.port };
+  const next = normalizeConfig(nextRaw);
+  const file = configFile(evolutionDir);
+  await queue(file, async () => {
+    await fs.promises.mkdir(evolutionDir, { recursive: true });
+    await fs.promises.writeFile(file, `${JSON.stringify({ ...nextRaw, ...next }, null, 2)}\n`, "utf8");
   });
   return next;
 }

@@ -21,9 +21,14 @@ export const DEFAULT_MODEL_CONFIG: Readonly<ModelConfig> = Object.freeze({ propo
 /** provider/id，id 允许带 `:thinking` 后缀（pi 的 --model 语法） */
 const SPEC = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 
+/** 是不是合法的 `provider/id`（`inherit` 不算 —— 它是「不指定」，由调用方自己判） */
+export function isModelSpec(value: unknown): boolean {
+  return typeof value === "string" && SPEC.test(value.trim());
+}
+
 /** 非法值一律退回 inherit：配置错误不该让整条流水线停摆 */
 export function normalizeModelSpec(value: unknown): string {
-  return typeof value === "string" && SPEC.test(value.trim()) ? value.trim() : INHERIT;
+  return isModelSpec(value) ? String(value).trim() : INHERIT;
 }
 
 /** 从 config.json 的原始对象里取模型配置（`{propose:{model},review:{model}}`） */
