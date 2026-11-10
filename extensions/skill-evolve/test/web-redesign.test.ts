@@ -25,7 +25,6 @@ function emptyState(): WebState {
     approvals: [],
     applied: [],
     done: [],
-    reports: [],
     summary: { reviewing: 0, stale: 0, pendingApprovals: 0, appliedTotal: 0, rollbackRate: 0 },
   };
 }
@@ -91,7 +90,7 @@ test("操作列文案：只读「详情 · 日志」，可写「详情 · 重跑
 test("tab 计数是 .cnt 徽章，当前 tab 的计数用 --blue 底", () => {
   const html = renderPage(withPending([pending("run-1", T_LATE), pending("run-2", T_EARLY)]), "pending", { now: NOW });
   assert.match(html, /<a href="\/\?view=pending" class="active">待处理<span class="cnt">2<\/span><\/a>/);
-  assert.match(html, /<a href="\/\?view=done">已处理<span class="cnt">0<\/span><\/a>/);
+  assert.match(html, /<a href="\/\?view=done">已结束<span class="cnt">0<\/span><\/a>/);
   assert.match(html, /\.tabs \.cnt \{[^}]*border-radius: 999px[^}]*\}/);
   assert.match(html, /\.tabs a\.active \.cnt \{ background: var\(--blue\)/);
 });

@@ -314,11 +314,26 @@ export async function handlePost(
  * 内容只可能是 run 目录下的两个日志文件之一，且 runId 过了白名单 + 目录归属校验，否则一律 404 ——
  * 404 而不是 403，是因为「这个 run 不存在」与「你想读别人的文件」不该给出可区分的回答。
  */
+/** 允许通过 `?file=` 指定读哪份日志：白名单，绝不让外部拼路径 */
+export const LOG_FILES = [CHILD_LOG, SUPERVISOR_LOG, "agent-review.log"] as const;
+
 export function handleLog(evolutionDir: string, response: http.ServerResponse, url: URL): void {
   const runId = (url.searchParams.get("runId") ?? "").trim();
   const runDir = resolveRunDir(evolutionDir, runId);
   if (runDir === null || !fs.existsSync(runDir)) {
     sendText(response, 404, `404：没有这个 run 的日志（runId=${runId}）\n`);
+    return;
+  }
+  // 显式指定 file 时只认白名单里的三份；没指定就沿用旧行为（child.log 优先，退回 supervisor.log）
+  const wanted = (url.searchParams.get("file") ?? "").trim();
+  const named = (LOG_FILES as readonly string[]).includes(wanted) ? wanted : null;
+  if (named !== null) {
+    const tail = readLogTail(path.join(runDir, named), LOG_TAIL_LINES);
+    if (tail.length === 0) {
+      sendText(response, 404, `404：${runId} 的 ${named} 不存在或为空\n`);
+      return;
+    }
+    sendText(response, 200, `# ${runId} · ${named}（末 ${tail.length} 行）\n${tail.join("\n")}\n`);
     return;
   }
   const lines = readLogTail(path.join(runDir, CHILD_LOG), LOG_TAIL_LINES);

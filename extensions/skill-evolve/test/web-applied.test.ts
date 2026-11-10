@@ -1,5 +1,5 @@
 /**
- * 「已采纳」单独成 tab：列表只列 applied，已处理页一条 applied 都不许有。
+ * 「已采纳」单独成 tab：列表只列 applied，已结束页一条 applied 都不许有。
  * 五闸结论分三种说法：全 ok / N 项失败 / 无记录（判不了 ≠ 没过）。
  *
  * 重做列表页后五闸不再单占一列，而是写进状态徽章的 `title`（鼠标停一下才展开）：
@@ -44,7 +44,6 @@ function state(parts: Partial<WebState> = {}): WebState {
     approvals: [],
     applied: [],
     done: [],
-    reports: [],
     summary: { reviewing: 0, stale: 0, pendingApprovals: 0, appliedTotal: 1, rollbackRate: 0 },
     ...parts,
   };
@@ -76,7 +75,7 @@ test("已采纳行：没有 06-verify.json 时写「无记录」，不写成「�
   assert.equal(html.includes("项失败"), false);
 });
 
-test("已采纳页只列 applied；已处理页一条 applied 都没有（两页不再混）", () => {
+test("已采纳页只列 applied；已结束页一条 applied 都没有（两页不再混）", () => {
   const shared = state({
     applied: [item({ runId: "run-applied" })],
     done: [done("run-rolled", "rolledback", "demo"), done("run-rejected", "rejected", "other")],
@@ -88,10 +87,10 @@ test("已采纳页只列 applied；已处理页一条 applied 都没有（两页
   assert.equal(appliedPage.includes("run-rolled"), false, "回滚的不算已采纳");
 
   const donePage = renderPage(shared, "done", { now: NOW });
-  assert.match(donePage, /<title>技能进化 · 已处理<\/title>/);
+  assert.match(donePage, /<title>技能进化 · 已结束<\/title>/);
   assert.match(donePage, /run-rolled/);
   assert.match(donePage, /run-rejected/);
-  assert.equal(donePage.includes("run-applied"), false, "applied 已经移出已处理页");
+  assert.equal(donePage.includes("run-applied"), false, "applied 已经移出已结束页");
 });
 
 test("已采纳页空态：说清采纳过的连 diff 一起留在这里，并给下一步", () => {

@@ -19,6 +19,28 @@ function kv(label: string, value: string): string {
   return `<div class="kv-row"><span class="k">${label}</span><span class="v">${value}</span></div>`;
 }
 
+/**
+ * Agent 会话入口：提案 Agent 的会话就是 child.log（它的 stdout 全量），
+ * 评审 Agent 的原始输出在 agent-review.log。两个都给同一个详情页里可点，不用去翻目录。
+ */
+function agentSection(detail: RunDetail): string {
+  const rid = encodeURIComponent(detail.runId);
+  const propose = detail.hasChildLog
+    ? `<a href="/log?runId=${rid}&amp;file=child.log">child.log</a> <span class="hint">（提案 Agent 的完整输出）</span>`
+    : `<span class="off">没有 child.log（这轮没派发出提案）</span>`;
+  const review = detail.hasReviewLog
+    ? `<a href="/log?runId=${rid}&amp;file=agent-review.log">agent-review.log</a> <span class="hint">（评审 Agent 的完整输出，两轮都在）</span>`
+    : `<span class="off">没有 agent-review.log（这轮没起评审，或是 v0.1.20 之前的旧 run）</span>`;
+  return `<section>
+<h2>Agent 会话</h2>
+<div class="kv">
+${kv("提案 Agent", propose)}
+${kv("评审 Agent", review)}
+</div>
+<p class="hint">用户会话（这段对话本身）见上面的「会话」一行。</p>
+</section>`;
+}
+
 function overview(detail: RunDetail): string {
   const log = detail.hasChildLog
     ? `<a href="/log?runId=${encodeURIComponent(detail.runId)}">child.log</a>`
@@ -34,7 +56,21 @@ function overview(detail: RunDetail): string {
     sessionFile === null
       ? `<span class="off">run.json 没写 sessionFile</span>`
       : `<code>${escapeHtml(sessionFile)}</code>`;
-  return `<section>
+  // 归属块放在最前：用户点进详情第一件事是「它现在属于哪个 tab、凭什么是它」，
+  // 证据列给的是可以自己去 cat 的文件与字段值（判据见 ./tab-origin.ts，这里只显示）
+  const evidence = detail.origin.evidence
+    .map((item) => `<code>${escapeHtml(item)}</code>`)
+    .join(" · ");
+  const originBlock = `<section>
+<h2>归属</h2>
+<div class="kv">
+${kv("现在在", `<a href="/?view=${detail.origin.tab}">${escapeHtml(detail.origin.label)}</a>`)}
+${kv("为什么", escapeHtml(detail.origin.reason))}
+${kv("证据", evidence)}
+</div>
+</section>
+`;
+  return originBlock + `<section>
 <h2>概要</h2>
 <div class="kv">
 ${kv("runId", `<code>${escapeHtml(detail.runId)}</code>`)}
@@ -292,6 +328,7 @@ export function renderRunPage(detail: RunDetail, options: RenderRunOptions): str
 <p class="hint"><a href="/?view=${escapeHtml(back.view)}">← 回${escapeHtml(back.label)}</a></p>
 ${pipelineSection(detail.pipeline, options.write ? { csrf: options.write.csrf, runId: detail.runId } : null)}
 ${overview(detail)}
+${agentSection(detail)}
 ${diffSection(detail)}
 ${candidateSection(detail)}
 ${reviewSection(detail)}

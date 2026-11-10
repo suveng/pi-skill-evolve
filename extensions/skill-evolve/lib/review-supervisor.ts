@@ -20,7 +20,7 @@ import { loadHardRules, scanText, type CompiledRules, type HardRuleHit } from ".
 import { buildReviewPrompt } from "./review-prompt.ts";
 import { classifyChange } from "./classify-action.ts";
 import { renderReviewMarkdown, stageModel, type ReviewRecord, type SupervisorStatus } from "./review-record.ts";
-import { reviewWithRetry, type ReviewSpawn } from "./review-run.ts";
+import { AGENT_REVIEW_LOG, reviewWithRetry, type ReviewSpawn } from "./review-run.ts";
 import { patchRunRecordSync } from "./runs.ts";
 import { applyUnifiedDiff } from "./diff-apply.ts";
 
@@ -204,6 +204,8 @@ export async function runReviewSupervisor(deps: ReviewSupervisorDeps): Promise<S
     ...(deps.reviewTimeoutMs ? { timeoutMs: deps.reviewTimeoutMs } : {}),
     ...(deps.log ? { log: deps.log } : {}),
     recheck,
+    // 评审 Agent 说了什么必须能复查：原始输出落到 run 目录，详情页给链接直接点开
+    rawLogPath: path.join(runDir, AGENT_REVIEW_LOG),
   });
 
   const verdict = outcome.result.verdict;

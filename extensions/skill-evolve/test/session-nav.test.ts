@@ -68,7 +68,6 @@ function emptyState(): WebState {
     approvals: [],
     applied: [],
     done: [],
-    reports: [],
     summary: { reviewing: 0, stale: 0, pendingApprovals: 0, appliedTotal: 0, rollbackRate: 0 },
   };
 }
@@ -78,12 +77,12 @@ function source(raw = jsonl()): SessionSource {
 }
 
 function page(options: { onlyUser?: boolean } = {}): string {
-  return renderSessionPage(source(), { state: emptyState(), onlyUser: options.onlyUser === true });
+  return renderSessionPage(source(), { state: emptyState(), only: options.onlyUser === true ? "user" : null });
 }
 
-/** 取 aside 里的目录链接（宽屏那份） */
+/** 取左侧可收起目录（`<details class="toc">`）里的链接 */
 function tocLinks(html: string): string[] {
-  const aside = /<aside class="toc">([\s\S]*?)<\/aside>/.exec(html)?.[1] ?? "";
+  const aside = /<details class="toc"[^>]*>([\s\S]*?)<\/details>/.exec(html)?.[1] ?? "";
   return [...aside.matchAll(/<a href="#(m-\d+)">/g)].map((match) => match[1] ?? "");
 }
 
@@ -103,7 +102,8 @@ test("锚点与目录一一对应：id 唯一、href 全都能落到实处", () 
 
 test("窄屏折叠目录：同一份内容放在顶部 <details> 里（宽屏由 CSS 隐藏）", () => {
   const html = page();
-  assert.match(html, /<details class="toc-fold"><summary>目录（3 条用户消息）<\/summary>/);
+  assert.match(html, /<details class="toc-fold"><summary>目录（用户消息） 3 条<\/summary>/);
+  assert.match(html, /<details class="toc" open><summary>目录（用户消息） 3 条 · 点标题收起<\/summary>/, "左侧目录可收起");
   const fold = /<div class="toc-list">([\s\S]*?)<\/div>/.exec(html)?.[1] ?? "";
   assert.deepEqual([...fold.matchAll(/<a href="#(m-\d+)">/g)].map((match) => match[1]), tocLinks(html));
 });
@@ -114,28 +114,30 @@ test("目录文本：转义且截到 40 字（长标题不把侧栏撑成两行�
     { sessionId: SID, file: FILE, sizeBytes: 10, transcript: parseSessionText(user(long, new Date(2026, 10, 8, 9, 0).getTime())) },
     { state: emptyState() },
   );
-  const aside = /<aside class="toc">([\s\S]*?)<\/aside>/.exec(html)?.[1] ?? "";
+  const aside = tocLinks(html).length > 0 ? /<details class="toc"[^>]*>([\s\S]*?)<\/details>/.exec(html)?.[1] ?? "" : "";
   assert.match(aside, new RegExp(`09:00 · 很{40}…`));
   assert.equal(aside.includes("<b>"), false, "目录文本必须转义");
 });
 
-test("只看对话：工具块全部省略成一行，且给「看全部」的回头路", () => {
+test("只看用户：工具块全部省略成一行，且给「看全部」的回头路", () => {
   const html = page({ onlyUser: true });
   assert.equal(html.includes('<details class="tools">'), false);
   assert.match(html, /<p class="hint">… 本轮省略 1 次工具调用/);
   assert.match(html, /<p class="hint">… 本轮省略 2 次工具调用（<a href="[^"]+">看全部<\/a>）<\/p>/);
   const back = /<a href="([^"]+)">看全部<\/a>/.exec(html)?.[1] ?? "";
   assert.ok(back.includes(`sessionId=${SID}`), "回头路必须还在这个会话");
-  assert.equal(back.includes("only=user"), false, "看全部 = 去掉 only=user");
+  assert.equal(back.includes("only"), false, "看全部 = 去掉 only 参数");
 });
 
 test("看全部 ⇄ 只看对话：切换链接都带着 sessionId 与原文件路径", () => {
   const all = page();
-  const toOnly = /<a href="([^"]+)">只看对话<\/a>/.exec(all)?.[1] ?? "";
+  const toOnly = /<a href="([^"]+)">只看用户<\/a>/.exec(all)?.[1] ?? "";
   assert.ok(toOnly.includes("only=user"));
   assert.ok(toOnly.includes(encodeURIComponent(FILE)), "换机器时 file 参数是找回原文的关键");
   const only = page({ onlyUser: true });
-  assert.match(only, /<span class="ov-link"><a href="[^"]*">看全部<\/a>（当前只看对话）<\/span>/);
+  assert.match(only, /当前：只看用户消息/);
+  const back = /<a href="([^"]+)">全部<\/a>/.exec(only)?.[1] ?? "";
+  assert.equal(back.includes("only=user"), false, "全部 = 去掉 only 参数");
 });
 
 test("两个跳转：顶部「跳到最新 ↓」指向最后一块，底部「↑ 回到顶部」指回 #top", () => {

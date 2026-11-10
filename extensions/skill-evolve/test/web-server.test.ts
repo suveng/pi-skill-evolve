@@ -56,24 +56,26 @@ test("GET /：真监听 127.0.0.1，返回四个 tab 与队列里的待批条目
     const html = await response.text();
     assert.match(html, /待处理/);
     assert.match(html, /待审批/);
-    assert.match(html, /已处理/);
-    assert.match(html, /复盘报告/);
-    // 列表页重做后行内不再有「[待批] run-web · demo」：状态是徽章，runId 在操作列
-    assert.match(html, /<span class="badge blue"[^>]*>待审批<\/span>/);
-    assert.match(html, /<td class="skill"><code>demo<\/code><\/td>/);
-    assert.match(html, /<a class="rid" href="\/\?view=run&amp;runId=run-web"[^>]*>详情<\/a>/);
+    assert.match(html, /已结束/);
+    assert.equal(html.includes("复盘报告"), false, "复盘报告 tab 已下线");
+    // 待批条目只出现在待审批页：待处理页不再重复列同一条（2026-11-10 去重）
+    assert.equal(html.includes("run-web"), false, "待处理页不许再列待批条目");
+    const approvals = await (await fetch(`${panel.url}/?view=approvals`)).text();
+    assert.match(approvals, /<span class="badge blue"[^>]*>待审批<\/span>/);
+    assert.match(approvals, /<td class="skill"><code>demo<\/code><\/td>/);
+    assert.match(approvals, /<a class="rid" href="\/\?view=run&amp;runId=run-web"[^>]*>详情<\/a>/);
   } finally {
     await panel.close();
   }
 });
 
-test("GET /?view=done 与 ?view=reports：切视图走 query，非法值回落待处理", async () => {
+test("GET /?view=done 与已下线的 ?view=reports：切视图走 query，非法值回落待处理", async () => {
   const panel = await open(workspace());
   try {
     const done = await (await fetch(`${panel.url}/?view=done`)).text();
-    assert.match(done, /<title>技能进化 · 已处理<\/title>/);
-    const reports = await (await fetch(`${panel.url}/?view=reports`)).text();
-    assert.match(reports, /<title>技能进化 · 复盘报告<\/title>/);
+    assert.match(done, /<title>技能进化 · 已结束<\/title>/);
+    const gone = await (await fetch(`${panel.url}/?view=reports`)).text();
+    assert.match(gone, /<title>技能进化 · 待处理<\/title>/, "下线的视图回落待处理");
     const bogus = await (await fetch(`${panel.url}/?view=nope`)).text();
     assert.match(bogus, /<title>技能进化 · 待处理<\/title>/);
   } finally {
@@ -81,15 +83,15 @@ test("GET /?view=done 与 ?view=reports：切视图走 query，非法值回落�
   }
 });
 
-test("GET /api/state：合法 JSON 且带六个顶层字段", async () => {
+test("GET /api/state：合法 JSON 且带五个顶层字段", async () => {
   const panel = await open(workspace());
   try {
     const response = await fetch(`${panel.url}/api/state`);
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-type") ?? "", /application\/json/);
     const state = (await response.json()) as WebState;
-    assert.deepEqual(Object.keys(state).sort(), ["applied", "approvals", "done", "pending", "reports", "summary"]);
-    assert.equal(state.pending[0]?.runId, "run-web");
+    assert.deepEqual(Object.keys(state).sort(), ["applied", "approvals", "done", "pending", "summary"]);
+    assert.equal(state.pending.length, 0, "待批条目只在待审批页出现一次");
     assert.equal(state.approvals[0]?.runId, "run-web");
     assert.equal(state.summary.pendingApprovals, 1);
   } finally {

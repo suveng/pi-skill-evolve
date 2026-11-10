@@ -14,18 +14,17 @@ function state(): WebState {
     approvals: [],
     applied: [],
     done: [],
-    reports: [],
     summary: { reviewing: 2, stale: 1, pendingApprovals: 3, appliedTotal: 4, rollbackRate: 0.26 },
   };
 }
 
-test("七个 tab：待处理 / 待审批 / 已采纳 / 已处理 / 复盘报告 / 技能管理 / 设置", () => {
-  assert.deepEqual([...TAB_ORDER], ["pending", "approvals", "applied", "done", "reports", "skills", "settings"]);
+test("六个 tab：待处理 / 待审批 / 已采纳 / 已结束 / 技能管理 / 设置（复盘报告已下线）", () => {
+  assert.deepEqual([...TAB_ORDER], ["pending", "approvals", "applied", "done", "skills", "settings"]);
   assert.deepEqual(
     TAB_ORDER.map((item) => VIEW_LABEL[item]),
-    ["待处理", "待审批", "已采纳", "已处理", "复盘报告", "技能管理", "设置"],
+    ["待处理", "待审批", "已采纳", "已结束", "技能管理", "设置"],
   );
-  assert.equal(tabs("applied").split("\n").length, 7, "不能有第八个 tab 或漏掉一个");
+  assert.equal(tabs("applied").split("\n").length, 6, "不能有第七个 tab 或漏掉一个");
 });
 
 test("高亮只落在当前 tab 上；详情页（active=null）一个都不高亮", () => {

@@ -54,7 +54,7 @@ test("参数没被删：URL 里的 skill / status 仍然生效", () => {
 
 test("技能页跳过来的链接照旧能带 skill 参数（只是不再有输入框）", () => {
   const parsed = parseListQuery(new URLSearchParams("skill=ui-verify"));
-  const html = renderFilterForm("reports", parsed, EXTRAS);
+  const html = renderFilterForm("done", parsed, EXTRAS);
   assert.ok(!html.includes('name="skill"'));
   assert.equal(parsed.skill, "ui-verify", "筛选逻辑要能吃到链接里的技能");
 });

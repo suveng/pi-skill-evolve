@@ -25,21 +25,29 @@ function state(): WebState {
     approvals: [],
     applied: [],
     done: [],
-    reports: [],
     summary: { reviewing: 1, stale: 0, pendingApprovals: 2, appliedTotal: 3, rollbackRate: 0.25 },
   };
 }
+
+const PENDING_ORIGIN = {
+  tab: "pending" as const,
+  label: "待处理",
+  reason: "既不在采纳队列的终态里，也没有等待人工批准的记录（在跑 / 待评审 / 待入队）",
+  evidence: ["runs/run-x/run.json", "runs/run-x/03-review.json"],
+};
 
 function detail(parts: Partial<RunDetail> = {}): RunDetail {
   return {
     runId: RUN_ID,
     status: "rejected",
+    origin: PENDING_ORIGIN,
     trigger: "auto",
     skill: "demo",
     startedAt: 1794133942865,
     endedAt: 1794134158913,
     pid: 65757,
     hasChildLog: true,
+    hasReviewLog: true,
     diff: DIFF_TEXT,
     candidateSkill: "demo",
     candidateText: "---\nname: demo\n---\n# 改后\n",
@@ -236,4 +244,48 @@ test("卡在等面板批准：给了 write 就渲染批准 / 拒绝，没给就�
 
   const readonly = renderRunPage(blocked, { state: state() });
   assert.equal(readonly.includes('action="/approve"'), false, "只读实例不该给一个点了必然 403 的按钮");
+});
+
+test("归属块：详情页说清「现在在哪个 tab、为什么、证据是什么」，tab 名能点回去", () => {
+  const html = renderRunPage(
+    detail({
+      origin: {
+        tab: "approvals",
+        label: "待审批",
+        reason: "队列 status=pending 且 level=approval（等待人工批准）",
+        evidence: ["queue.json：status=pending level=approval", "runs/run-x/02-proposal.json"],
+      },
+    }),
+    { state: state() },
+  );
+  assert.match(html, /<h2>归属<\/h2>/);
+  assert.match(html, /<a href="\/\?view=approvals">待审批<\/a>/, "tab 名要能点回列表页");
+  assert.match(html, /队列 status=pending 且 level=approval/);
+  assert.match(html, /<code>queue\.json：status=pending level=approval<\/code>/, "证据要能照着 cat 出来");
+  assert.match(html, /<code>runs\/run-x\/02-proposal\.json<\/code>/);
+});
+
+test("归属块的证据转义：队列里的目标路径带尖括号也不许出裸标签", () => {
+  const html = renderRunPage(
+    detail({ origin: { tab: "pending", label: "待处理", reason: "<script>r</script>", evidence: ["<img src=x>"] } }),
+    { state: state() },
+  );
+  assert.equal(html.includes("<script>r</script>"), false);
+  assert.equal(html.includes("<img src=x>"), false);
+  assert.match(html, /&lt;img src=x&gt;/);
+});
+
+test("Agent 会话：提案 Agent 指 child.log、评审 Agent 指 agent-review.log，都是可点的链接", () => {
+  const html = renderRunPage(detail(), { state: state() });
+  assert.match(html, /<h2>Agent 会话<\/h2>/);
+  assert.match(html, /<a href="\/log\?runId=354df7db-1794133942&amp;file=child\.log">child\.log<\/a>/);
+  assert.match(html, /<a href="\/log\?runId=354df7db-1794133942&amp;file=agent-review\.log">agent-review\.log<\/a>/);
+});
+
+test("Agent 会话：哪个 agent 没跑过就明说没有，不给一个点了 404 的链接", () => {
+  const html = renderRunPage(detail({ hasChildLog: false, hasReviewLog: false }), { state: state() });
+  assert.equal(html.includes("file=child.log"), false);
+  assert.equal(html.includes("file=agent-review.log"), false);
+  assert.match(html, /没有 child\.log/);
+  assert.match(html, /没有 agent-review\.log/);
 });

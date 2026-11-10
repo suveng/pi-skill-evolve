@@ -12,7 +12,7 @@
  * - `range` 按条目自己的时间字段算：待处理/已处理用 `at`，报告用 `startedAt`；取不到时间的一律**不**落进带范围的筛选
  *   （宁可让它只在 `range=all` 出现，也不能让「不知道时间」冒充「最近 7 天」）。
  */
-import type { AppliedItem, ApprovalItem, DoneItem, PendingItem, RunReport, WebState, WebView } from "./data.ts";
+import type { AppliedItem, ApprovalItem, DoneItem, PendingItem, WebState, WebView } from "./data.ts";
 import { WEB_VIEWS } from "./data.ts";
 
 export const PAGE_SIZE = 20;
@@ -88,8 +88,7 @@ export type ViewPage =
   | { view: "pending"; rows: PendingItem[]; page: number; pages: number; total: number }
   | { view: "approvals"; rows: ApprovalItem[]; page: 1; pages: 1; total: number }
   | { view: "applied"; rows: AppliedItem[]; page: number; pages: number; total: number }
-  | { view: "done"; rows: DoneItem[]; page: number; pages: number; total: number }
-  | { view: "reports"; rows: RunReport[]; page: number; pages: number; total: number };
+  | { view: "done"; rows: DoneItem[]; page: number; pages: number; total: number };
 
 const PENDING_STATUS: Record<PendingItem["kind"], string> = {
   running: "running",
@@ -113,11 +112,6 @@ function statusMatched(status: string, filter: ListFilter): boolean {
   return filter.status.length === 0 || status === filter.status;
 }
 
-/** 报告页的技能名藏在提案里：没有提案（还没到出稿那一步）就是空串，只在「全部技能」时命中 */
-function reportSkill(item: RunReport): string {
-  return item.proposal?.skill ?? "";
-}
-
 /** 待处理没有分页（它天然很短，且有 5 秒自动刷新，翻页会把人翻丢） */
 export function buildViewPage(state: WebState, view: WebView, filter: ListFilter, now: number): ViewPage {
   if (view === "approvals") {
@@ -136,15 +130,6 @@ export function buildViewPage(state: WebState, view: WebView, filter: ListFilter
   if (view === "done") {
     const rows = state.done.filter(
       (item) => skillMatched(item.skill, filter) && statusMatched(item.status, filter) && inRange(item.at, filter, now),
-    );
-    return { view, ...paginate(rows, filter.page) };
-  }
-  if (view === "reports") {
-    const rows = state.reports.filter(
-      (item) =>
-        skillMatched(reportSkill(item), filter) &&
-        statusMatched(item.status, filter) &&
-        inRange(item.startedAt, filter, now),
     );
     return { view, ...paginate(rows, filter.page) };
   }

@@ -172,7 +172,7 @@ test("只有工具调用的助手消息不产出空块（shown 不计它）", ()
   assert.equal(view.toc.length, 1);
 });
 
-test("只看对话：工具块换成一行「省略 N 次调用（看全部）」", () => {
+test("只看用户：工具块换成一行「省略 N 次调用（看全部）」", () => {
   const raw =
     user("看一下") +
     assistant("", [
@@ -181,7 +181,7 @@ test("只看对话：工具块换成一行「省略 N 次调用（看全部）�
     ]) +
     result("c1", "A") +
     result("c2", "B");
-  const view = renderTranscript(parseSessionText(raw), { onlyUser: true, expandHref: "/?view=session&sessionId=x" });
+  const view = renderTranscript(parseSessionText(raw), { onlyRole: "user", expandHref: "/?view=session&sessionId=x" });
   assert.equal(view.body.includes('<details class="tools">'), false);
   assert.match(view.body, /<p class="hint">… 本轮省略 2 次工具调用（<a href="[^"]+">看全部<\/a>）<\/p>/);
 });

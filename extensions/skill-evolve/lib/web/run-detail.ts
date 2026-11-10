@@ -22,6 +22,7 @@ import type { RunRecord } from "../runs.ts";
 import { asNumber, asRecord, asText, readJson, reasonLabel } from "./json-read.ts";
 import { sendText, TEXT_TYPE } from "./http.ts";
 import { resolveRunDir } from "./run-path.ts";
+import { originOfRun, type RunOrigin } from "./tab-origin.ts";
 
 /** findings 最多展示 20 条：一轮复盘可能列出几十个技能，页面只用来快速定位问题 */
 export const FINDING_LIMIT = 20;
@@ -63,6 +64,8 @@ export interface RunFinding {
 export interface RunDetail {
   runId: string;
   status: string;
+  /** 这条 run 归哪个 tab、凭什么归它（唯一判据在 ./tab-origin.ts，页面只负责显示） */
+  origin: RunOrigin;
   trigger: string;
   /** pi sessionId（这轮复盘是哪个会话跑出来的）；老 run.json 可能没有 = null */
   sessionId: string | null;
@@ -76,6 +79,8 @@ export interface RunDetail {
   pid: number | null;
   /** 有没有 child.log（决定要不要给日志链接） */
   hasChildLog: boolean;
+  /** 评审 Agent 的原始输出（agent-review.log）：没有 = 这轮没起过评审或旧版没落盘 */
+  hasReviewLog: boolean;
   /** 02-proposal.diff 原文；没有这个文件为 null */
   diff: string | null;
   /** candidate 目录里的技能名（与 skill 一致才读全文） */
@@ -234,10 +239,12 @@ export function readRunDetail(evolutionDir: string, runId: string): RunDetail | 
   const reviewAt = asNumber(asRecord(readJson<unknown>(path.join(runDir, "03-review.json")))?.reviewedAt);
   const stamps = [decision, verifyAt, reviewAt].filter((value): value is number => value !== null);
   const hasChildLog = exists(path.join(runDir, "child.log"));
+  const hasReviewLog = exists(path.join(runDir, "agent-review.log"));
   // 流水线：pid 存活按 run.json 记的两个 pid，队列状态按 queue.json（不在队列 = null）
   // 开关来自 config.json —— 面板只读，读配置也只是想知道「为什么这步被跳过了」
   const config = loadConfig(evolutionDir);
-  const queued = readQueue(evolutionDir).find((item) => item.runId === runId)?.status ?? null;
+  const queueItem = readQueue(evolutionDir).find((item) => item.runId === runId);
+  const queued = queueItem?.status ?? null;
   const pipeline = buildPipeline({
     runDir,
     status: asText(record?.status, ""),
@@ -248,9 +255,18 @@ export function readRunDetail(evolutionDir: string, runId: string): RunDetail | 
     autoReview: config.autoReview,
     autoApply: config.autoApply,
   });
+  const status = asText(record?.status, "（无 run.json）");
+  // 归属与判据：与列表页同一份实现（./tab-origin.ts），详情页不再自己推断
+  const origin = originOfRun({
+    runId,
+    runRelDir: `runs/${runId}`,
+    ...(queueItem ? { queue: queueItem } : {}),
+    runStatus: status,
+  });
   return {
     runId,
-    status: asText(record?.status, "（无 run.json）"),
+    status,
+    origin,
     trigger: asText(record?.trigger, "—"),
     sessionId: asText(record?.sessionId) || null,
     sessionFile: asText(record?.sessionFile) || null,
@@ -259,6 +275,7 @@ export function readRunDetail(evolutionDir: string, runId: string): RunDetail | 
     endedAt: stamps.length === 0 ? null : Math.max(...stamps),
     pid: asNumber(record?.pid),
     hasChildLog,
+    hasReviewLog,
     diff: readTextFile(path.join(runDir, "02-proposal.diff")),
     ...candidate,
     ...review,

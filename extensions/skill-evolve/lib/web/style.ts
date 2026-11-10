@@ -173,6 +173,9 @@ pre { margin: 8px 0 0; padding: 12px; background: #12151b; border-left: 2px soli
 .ov .ov-link { margin-left: 12px }
 .ses-wrap { display: flex; gap: 24px; align-items: flex-start }
 .toc { display: none }
+/* 目录可收起（<details open>）：收起后正文占满宽度，长会话里能腾出 260px 读正文 */
+details.toc .toc-list { padding: 8px 0 0 }
+.toc > summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 2px 0 6px }
 .m { scroll-margin-top: 80px }
 /* 消息块：一条一块，抬头上是角色徽章与时刻 */
 .msg { margin: 16px 0; padding: 0 0 0 12px; border-left: 3px solid transparent }

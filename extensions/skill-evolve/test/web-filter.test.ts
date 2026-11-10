@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ApprovalItem, DoneItem, PendingItem, RunReport, WebState } from "../lib/web/data.ts";
+import type { ApprovalItem, DoneItem, PendingItem, WebState } from "../lib/web/data.ts";
 import {
   NO_FILTER,
   PAGE_SIZE,
@@ -34,20 +34,6 @@ function done(runId: string, status: string, skill: string, at: number | null): 
   return { runId, status, source: "run", level: "auto", skill, at, detail: `${runId} 的详情` };
 }
 
-function report(runId: string, status: string, skill: string | null, startedAt: number | null): RunReport {
-  return {
-    runId,
-    status,
-    trigger: "manual",
-    startedAt,
-    findings: { total: 0, rows: [] },
-    proposal: skill === null ? null : { type: "skill", skill, added: 1, removed: 0 },
-    review: null,
-    decision: null,
-    verify: null,
-  };
-}
-
 function approval(runId: string, skill: string): ApprovalItem {
   return { runId, skill, level: "approval", targets: [], createdAt: NOW, proposal: null, review: null, detail: "" };
 }
@@ -58,7 +44,6 @@ function state(parts: Partial<WebState> = {}): WebState {
     approvals: [],
     applied: [],
     done: [],
-    reports: [],
     summary: { reviewing: 0, stale: 0, pendingApprovals: 0, appliedTotal: 0, rollbackRate: 0 },
     ...parts,
   };
@@ -142,29 +127,6 @@ test("buildViewPage(done)：status / skill / range 三个条件叠加", () => {
   assert.equal(all.total, 4);
 });
 
-test("buildViewPage(reports)：技能名取自提案，时间用 startedAt", () => {
-  const sample = state({
-    reports: [
-      report("run-p", "analyzed", "demo", NOW - HOUR),
-      report("run-q", "failed", "other", NOW - HOUR),
-      report("run-r", "analyzed", null, NOW - HOUR),
-      report("run-s", "analyzed", "demo", NOW - 20 * DAY),
-    ],
-  });
-  const demo = buildViewPage(sample, "reports", filter({ skill: "demo", range: "7d" }), NOW);
-  assert.deepEqual(
-    demo.rows.map((item) => item.runId),
-    ["run-p"],
-  );
-  const noProposal = buildViewPage(sample, "reports", filter({ range: "all" }), NOW);
-  assert.equal(noProposal.total, 4, "没有提案的报告只在「全部技能」时命中");
-  const failed = buildViewPage(sample, "reports", filter({ status: "failed" }), NOW);
-  assert.deepEqual(
-    failed.rows.map((item) => item.runId),
-    ["run-q"],
-  );
-});
-
 test("buildViewPage(approvals)：不分页，rows 原样（待批本身很短）", () => {
   const sample = state({ approvals: [approval("run-x", "demo"), approval("run-y", "other")] });
   const page = buildViewPage(sample, "approvals", filter({ skill: "demo" }), NOW);
@@ -199,7 +161,7 @@ test("pageHref：保留 skill / status / range，空的不写进链接", () => {
 });
 
 test("parseView 白名单 / isDefaultFilter / rangeStart", () => {
-  assert.equal(parseView("reports"), "reports");
+  assert.equal(parseView("reports"), "pending", "复盘报告页已下线，旧链接回落待处理");
   assert.equal(parseView("done"), "done");
   for (const bad of [null, "", "nope", "../x"]) assert.equal(parseView(bad), "pending", `parseView(${bad})`);
   assert.equal(isDefaultFilter(filter({ range: "7d" })), true);

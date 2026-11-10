@@ -13,7 +13,7 @@
  * 2. **操作是小号链接，不是每行两个大按钮**：一行一条 run，按钮比信息显眼就本末倒置了。
  * 3. **同一会话的多条 run 收进一个 `<details>`**：9 条 run 逐行重复「重跑 / 日志」正是原来列表被压没的原因。
  */
-import type { AppliedItem, ApprovalItem, DoneItem, PendingItem, RunReport, WebView } from "./data.ts";
+import type { AppliedItem, ApprovalItem, DoneItem, PendingItem, WebView } from "./data.ts";
 import type { SessionRef } from "./run-session.ts";
 import { escapeHtml } from "./text.ts";
 
@@ -199,37 +199,4 @@ export function approvalRows(items: readonly ApprovalItem[], ctx: RowContext): L
   });
 }
 
-/** 复盘报告：状态文案直接取 run 状态（analyzed 写「已分析」，stale 写「卡死」） */
-export function reportRows(reports: readonly RunReport[], ctx: RowContext): ListRow[] {
-  const tone: Record<string, { text: string; tone: BadgeTone }> = {
-    analyzed: { text: "已分析", tone: "gray" },
-    applied: { text: "已采纳", tone: "green" },
-    rejected: { text: "已拒绝", tone: "darkred" },
-    running: { text: "复盘中", tone: "yellow" },
-    stale: { text: "卡死", tone: "red" },
-    failed: { text: "失败", tone: "red" },
-  };
-  return reports.map((report) => {
-    const facts = [
-      `触发：${report.trigger}`,
-      `findings：${report.findings.total} 条`,
-      report.review ? `评审：${report.review.status} · blocking ${report.review.blocking} 条` : "评审：无",
-      report.failure ?? "",
-    ]
-      .filter((line) => line.length > 0)
-      .join(" · ");
-    return {
-      runId: report.runId,
-      badge: { ...(tone[report.status] ?? { text: report.status, tone: "faint" as BadgeTone }), title: facts },
-      at: report.startedAt,
-      skill: report.proposal?.skill ?? "",
-      delta: report.proposal
-        ? { type: report.proposal.type, added: report.proposal.added, removed: report.proposal.removed }
-        : null,
-      session: report.session,
-      ops: activeOps(report.runId, ctx, report.status === "stale"),
-      needsAction: report.status === "stale",
-    };
-  });
-}
 

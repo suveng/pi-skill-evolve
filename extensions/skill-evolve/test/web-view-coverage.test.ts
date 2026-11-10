@@ -20,7 +20,6 @@ import { APPLIED_RUN_STATUSES } from "../lib/web/applied.ts";
 import { APPROVALS_RUN_STATUSES } from "../lib/web/approvals.ts";
 import { buildDone, DONE_STATUSES } from "../lib/web/done.ts";
 import { PENDING_RUN_STATUSES } from "../lib/web/pending.ts";
-import { REPORTS_RUN_STATUSES } from "../lib/web/reports.ts";
 import { doneRows } from "../lib/web/render-rows.ts";
 
 const NOW = Date.UTC(2026, 10, 8, 12);
@@ -71,14 +70,13 @@ test("覆盖性：RUN_STATUSES 每一项至少被一个视图的判据清单收"
     待处理: PENDING_RUN_STATUSES,
     待审批: APPROVALS_RUN_STATUSES,
     已采纳: APPLIED_RUN_STATUSES,
-    已处理: DONE_STATUSES,
-    复盘报告: REPORTS_RUN_STATUSES,
+    已结束: DONE_STATUSES,
   };
   const missing = RUN_STATUSES.filter((status) => !Object.values(views).some((list) => list.includes(status)));
   assert.deepEqual(missing, [], `这些状态没有任何 tab 收，会在面板上直接消失：${missing.join("、")}`);
 });
 
-test("「已处理」清单里的每个状态都能真的被 buildDone 收到（防 rolledback 这种抄错字符）", () => {
+test("「已结束」清单里的每个状态都能真的被 buildDone 收到（防 rolledback 这种抄错字符）", () => {
   const evolutionDir = workspace();
   for (const status of DONE_STATUSES) {
     const done = buildDone([], [run(`r-${status}`, status, NOW)], evolutionDir);

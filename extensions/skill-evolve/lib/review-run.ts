@@ -5,6 +5,7 @@
  * （selftest）共用，避免两处各写一套超时/重试导致行为不一致。
  * spawnFn / now / sleep 全部可注入：单测不真起 pi、不真等 300 秒。
  */
+import * as fs from "node:fs";
 import { spawn as nodeSpawn } from "node:child_process";
 import { resolvePiBin } from "./spawn-plan.ts";
 import { postProcessReview, type ReviewResult } from "./review-post.ts";
@@ -16,6 +17,9 @@ export interface ReviewChild {
   unref?: () => void;
   kill?: (signal?: NodeJS.Signals) => void;
 }
+
+/** 评审 Agent 会话留档文件名：与提案 Agent 的 child.log 并列，详情页从这里点进去看 */
+export const AGENT_REVIEW_LOG = "agent-review.log";
 
 export type ReviewSpawn = (command: string, args: string[], options: Record<string, unknown>) => ReviewChild;
 
@@ -96,6 +100,19 @@ export async function runReviewChild(options: ReviewChildOptions): Promise<Revie
 export interface ReviewWithRetryOptions extends ReviewChildOptions {
   /** 机械复验：返回非空字符串表示候选文件不合法（frontmatter 坏） */
   recheck?: () => string | null;
+  /** 评审 Agent 原始输出的留档路径（每轮追加一段）：给人从详情页点进去看它到底说了什么 */
+  rawLogPath?: string;
+}
+
+/** 追加一轮评审输出：两轮重试都留，别只留最后一轮（无效那轮才是排查线索） */
+function appendRawLog(rawLogPath: string | undefined, round: number, outcome: ReviewChildOutcome): void {
+  if (!rawLogPath || outcome.text.length === 0) return;
+  try {
+    const head = `\n### 第 ${round} 次尝试（${outcome.status}${outcome.detail ? ` · ${outcome.detail}` : ""} · ${outcome.ms}ms）\n`;
+    fs.appendFileSync(rawLogPath, `${head}${outcome.text}\n`, "utf8");
+  } catch {
+    // 留档失败不影响评审结论：这只是给人看的旁证
+  }
 }
 
 export interface ReviewWithRetryOutcome {
@@ -118,6 +135,7 @@ export async function reviewWithRetry(options: ReviewWithRetryOptions): Promise<
   for (let round = 1; round <= 2; round += 1) {
     attempts = round;
     const outcome = await runReviewChild(options);
+    appendRawLog(options.rawLogPath, round, outcome);
     if (outcome.status !== "text") {
       last = { status: "invalid", blocking: [], detail: outcome.detail ?? outcome.status };
       attemptsLog.push(`第 ${round} 次：${last.detail}`);

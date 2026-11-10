@@ -66,7 +66,6 @@ function emptyState(): WebState {
     approvals: [],
     applied: [],
     done: [],
-    reports: [],
     summary: { reviewing: 0, stale: 0, pendingApprovals: 0, appliedTotal: 0, rollbackRate: 0 },
   };
 }
@@ -161,7 +160,7 @@ test("renderSessionPage：顶部一行给返回入口 / 会话短 id / 原文件
   assert.match(html, /<p class="ov">消息 3 · 工具调用 1 · \d+B/);
   // 出口：渲染了多少条、原文件在哪
   assert.match(html, /已渲染全部 3 条消息（原文件 <code>.*\.jsonl<\/code>）/);
-  assert.equal(/<details[^>]*\sopen/.test(html), false, "工具块默认收起");
+  assert.equal(/<details class="tools"[^>]*\sopen/.test(html), false, "工具块默认收起（目录那份 open 是另一回事）");
   assert.match(html, /看一下这个文件/);
 });
 
@@ -190,7 +189,7 @@ test("HTTP 路由：GET /?view=session&sessionId= 接对了（HOME 指到临时�
     assert.match(response.headers.get("content-type") ?? "", /text\/html/);
     const html = await response.text();
     assert.match(html, /<details class="tools"><summary>▸ read ×1 · <span class="muted">/);
-    assert.equal(/<details[^>]*\sopen/.test(html), false);
+    assert.equal(/<details class="tools"[^>]*\sopen/.test(html), false);
     assert.match(html, /← 返回待处理/);
   } finally {
     await result.panel.close();

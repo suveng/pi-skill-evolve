@@ -29,7 +29,6 @@ function emptyState(): WebState {
     approvals: [],
     applied: [],
     done: [],
-    reports: [],
     summary: { reviewing: 0, stale: 0, pendingApprovals: 0, appliedTotal: 0, rollbackRate: 0 },
   };
 }
@@ -53,27 +52,6 @@ test("渲染：技能名与详情里的 <script> 一律转义，页面里没有�
   assert.match(html, /&lt;script&gt;x\(\)&lt;\/script&gt;/);
 });
 
-test("渲染：报告页的徽章 title 也被转义（summary 里能塞任意文本）", () => {
-  const state = emptyState();
-  state.reports.push({
-    runId: "run-1",
-    status: "applied",
-    trigger: "auto",
-    session: NO_SESSION,
-    startedAt: 0,
-    findings: { total: 1, rows: [{ skill: "<img src=x onerror=alert(1)>", kind: "未加载", reason: "<b>没读</b>" }] },
-    proposal: { type: "improve", skill: "demo", added: 3, removed: 1 },
-    review: { status: "reviewed", verdict: "pass", blocking: 0 },
-    decision: { status: "applied", approver: "auto", at: 0, detail: "<script>d</script>" },
-    verify: { status: "applied", at: 0, gates: [{ gate: "gate0", name: "授权核对", ok: true }] },
-    failure: "<img src=x onerror=alert(1)>",
-  });
-  const html = renderPage(state, "reports");
-  assert.equal(/<img/i.test(html), false, "徽章 title 里的标签必须转义");
-  assert.equal(/<script/i.test(html), false);
-  assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/, "转义后的原文仍在，便于核对");
-});
-
 test("四个视图：标题、active 标签与列表内容各就各位", () => {
   const state = withPending("demo", "详情");
   const pending = renderPage(state, "pending");
@@ -89,21 +67,18 @@ test("四个视图：标题、active 标签与列表内容各就各位", () => {
   assert.equal(approvals.includes("run-x"), false, "待审批页只收 approvals，不串待处理条目");
 
   const done = renderPage(state, "done");
-  assert.match(done, /<title>技能进化 · 已处理<\/title>/);
-  assert.match(done, /<a href="\/\?view=done" class="active">已处理<span class="cnt">0<\/span><\/a>/);
+  assert.match(done, /<title>技能进化 · 已结束<\/title>/);
+  assert.match(done, /<a href="\/\?view=done" class="active">已结束<span class="cnt">0<\/span><\/a>/);
   assert.equal(done.includes("run-x"), false, "别的视图不能串内容");
-
-  const reports = renderPage(state, "reports");
-  assert.match(reports, /<title>技能进化 · 复盘报告<\/title>/);
-  assert.match(reports, /<a href="\/\?view=reports" class="active">复盘报告<span class="cnt">0<\/span><\/a>/);
 });
 
-test("六个视图：tab 顺序是 待处理 / 待审批 / 已采纳 / 已处理 / 复盘报告 / 技能管理", () => {
+test("六个 tab：顺序是 待处理 / 待审批 / 已采纳 / 已结束 / 技能管理 / 设置（复盘报告已下线）", () => {
   const html = renderPage(emptyState(), "pending");
   // 只扫 nav：状态栏与页脚里也有 /?view=approvals 链接，整页扫会把它们算进来
   const nav = html.slice(html.indexOf('<nav class="tabs">'), html.indexOf("</nav>"));
   const order = [...nav.matchAll(/<a href="\/\?view=(\w+)"/g)].map((match) => match[1]);
-  assert.deepEqual(order, ["pending", "approvals", "applied", "done", "reports", "skills", "settings"]);
+  assert.deepEqual(order, ["pending", "approvals", "applied", "done", "skills", "settings"]);
+  assert.equal(nav.includes("复盘报告"), false, "复盘报告 tab 已下线，导航里不许再出现");
 });
 
 test("空态：每个列表视图各有一句人话", () => {
@@ -111,8 +86,7 @@ test("空态：每个列表视图各有一句人话", () => {
     ["pending", "暂无待处理：所有复盘都已完成，也没有待人批的改动。"],
     ["approvals", "没有待批：auto 级不需要人批，approval 级的会出现在这里。"],
     ["applied", "还没有已采纳的提案：采纳过的会连 diff 一起留在这里。"],
-    ["done", "暂无已处理记录：还没有回滚、失败或被否决的提案。"],
-    ["reports", "暂无复盘报告：还没有 run 写过 01-findings.json。"],
+    ["done", "暂无已结束记录：还没有回滚、失败或被否决的提案。"],
   ] as const) {
     const html = renderPage(emptyState(), view);
     assert.match(html, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -130,35 +104,6 @@ test("摘要行：四个数字按顺序，待批数字链到待审批页（回�
   );
 });
 
-test("报告详情：findings 条数、提案增删行、五闸对错都在展开区里", () => {
-  const state = emptyState();
-  state.reports.push({
-    runId: "run-2",
-    status: "applied",
-    trigger: "manual",
-    session: NO_SESSION,
-    startedAt: 0,
-    findings: { total: 7, rows: [{ skill: "demo", kind: "未加载", reason: "B frontmatter 坏" }] },
-    proposal: { type: "improve", skill: "demo", added: 5, removed: 2 },
-    review: { status: "reviewed", verdict: "pass", blocking: 1 },
-    decision: null,
-    verify: {
-      status: "applied",
-      at: 0,
-      gates: [
-        { gate: "gate0", name: "授权核对", ok: true },
-        { gate: "gate3", name: "诊断", ok: false },
-      ],
-    },
-  });
-  const html = renderPage(state, "reports");
-  // 列表行只放五个字段：findings / 评审 / 五闸这类细节进徽章 title 与 run 详情页
-  assert.match(html, /<span class="badge green" title="[^"]*findings：7 条[^"]*">已采纳<\/span>/);
-  assert.match(html, /<td class="skill"><code>demo<\/code><\/td>/);
-  assert.match(html, /<td class="delta">\+5 \/ -2<\/td>/);
-  assert.match(html, /<a class="rid" href="\/\?view=run&amp;runId=run-2" title="run-2">详情<\/a>/);
-});
-
 test("页脚是本机面板口径：只绑 127.0.0.1、无鉴权、机器可读副本见 /api/state", () => {
   const html = renderPage(emptyState(), "pending");
   assert.match(html, /本机面板 · 只绑 127\.0\.0\.1 · 无鉴权/);
@@ -168,10 +113,10 @@ test("页脚是本机面板口径：只绑 127.0.0.1、无鉴权、机器可读�
   assert.equal(html.includes("不能在这里点批准"), false);
 });
 
-test("parseView：认 approvals / done / reports，其余回落待处理", () => {
+test("parseView：认 approvals / applied / done，其余回落待处理（reports 已下线）", () => {
   assert.equal(parseView("approvals"), "approvals");
   assert.equal(parseView("done"), "done");
-  assert.equal(parseView("reports"), "reports");
+  assert.equal(parseView("reports"), "pending", "复盘报告页已下线，旧链接回落待处理");
   assert.equal(parseView("pending"), "pending");
   assert.equal(parseView(null), "pending");
   assert.equal(parseView("bogus"), "pending");
@@ -199,29 +144,6 @@ test("待处理页：运行中的条目有自己的徽章，不是只给个数�
   state.pending.push({ runId: "run-live", kind: "running", skill: "", at: 0, detail: "阶段：复盘产出中", session: NO_SESSION });
   const html = renderPage(state, "pending");
   assert.match(html, /<span class="badge yellow" title="阶段：复盘产出中">复盘中<\/span>/);
-});
-
-test("复盘报告：卡死的 run 行首标 [卡死]，detail 里带失败原因", () => {
-  const state = emptyState();
-  state.reports.push({
-    runId: "run-dead",
-    status: "stale",
-    trigger: "auto",
-    session: NO_SESSION,
-    startedAt: 0,
-    findings: { total: 0, rows: [] },
-    proposal: null,
-    review: null,
-    decision: null,
-    verify: null,
-    failure: "原因：子进程已退出\n日志末行：Error: 模板缺失",
-  });
-  const html = renderPage(state, "reports", { canWrite: true, csrf: "t", now: NOW });
-  assert.match(html, /<span class="badge red" title="[^"]*">卡死<\/span>/);
-  assert.match(html, /原因：子进程已退出/);
-  assert.match(html, /日志末行：Error: 模板缺失/);
-  // 卡死的 run 才有「清理」（移到 runs/.trash/，不删数据）
-  assert.match(html, /name="name" value="cleanup"/);
 });
 
 test("待审批页：条目上是 targets / 提案增删行 / verdict 与 blocking 条数", () => {

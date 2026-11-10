@@ -29,7 +29,7 @@ import { renderPage } from "./render.ts";
 import { renderSettingsPage } from "./render-settings.ts";
 import { readSettings } from "../settings.ts";
 import { renderRunPage } from "./render-run.ts";
-import { renderSessionPage } from "./render-session.ts";
+import { parseOnly, renderSessionPage } from "./render-session.ts";
 import { renderSkillPage, renderSkillsPage } from "./render-skills.ts";
 import { handleDiff, readRunDetail } from "./run-detail.ts";
 import { readSessionSource } from "./session-file.ts";
@@ -104,7 +104,10 @@ function renderGet(ctx: RouteContext, url: URL): GetResult {
     // `only=user` 在服务端过滤（面板零 JS）：列表只渲染用户消息与助手纯文本，工具调用压成一行
     return {
       status: 200,
-      body: renderSessionPage(source, { state, onlyUser: url.searchParams.get("only") === "user" }),
+      body: renderSessionPage(source, {
+        state,
+        only: parseOnly(url.searchParams.get("only")),
+      }),
       type: HTML_TYPE,
     };
   }

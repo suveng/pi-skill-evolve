@@ -93,6 +93,8 @@ export interface RenderSessionOptions {
   dropped?: number;
   /** 只看对话：工具调用压成一行 */
   onlyUser?: boolean;
+  /** 只留某一方的消息（"user" / "assistant"）：工具块与另一方的消息都不渲染，用于快速定位 */
+  onlyRole?: "user" | "assistant";
   /** 「看全部」链接（去掉 only=user 的同一会话地址） */
   expandHref?: string | null;
 }
@@ -133,12 +135,17 @@ export function renderTranscript(
     );
   }
   for (const entry of transcript.entries) {
+    // 角色过滤：只看用户时工具调用压成一行（保留「省略了几次」的信息），只看助手时工具块整块跳过
+    if (options.onlyRole === "assistant" && entry.kind === "tools") continue;
+    if (options.onlyRole !== undefined && entry.kind !== "tools" && entry.kind !== options.onlyRole) continue;
     const id = `m-${shown + 1}`;
     const rendered =
       entry.kind === "tools"
         ? {
             html:
-              options.onlyUser === true ? omittedLine(entry.calls, options.expandHref ?? null) : toolGroup(entry.calls),
+              options.onlyRole === "user"
+                ? omittedLine(entry.calls, options.expandHref ?? null)
+                : toolGroup(entry.calls),
             text: "",
           }
         : messageBlock(
@@ -154,7 +161,9 @@ export function renderTranscript(
     shown += 1;
     parts.push(rendered.html);
     size += rendered.html.length;
-    if (entry.kind === "user") {
+    // 目录跟着过滤走：看全部时以用户消息为章节，只看助手时以助手回复为章节
+    const tocRole = options.onlyRole ?? "user";
+    if (entry.kind === tocRole) {
       toc.push({ id, at: entry.at, text: clip(rendered.text, TOC_TEXT) });
     }
   }

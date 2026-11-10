@@ -23,11 +23,19 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(2)}MB`;
 }
 
-/** 本页自己的地址：`sessionId` + 可选 `file` + 可选 `only=user`（全部走编码后的枚举值） */
-function sessionUrl(sessionId: string, file: string | null, onlyUser: boolean): string {
+/** `?only=` 的唯一解析入口：只认 user / assistant，其它（含拼错、空串）一律回到全部 */
+export function parseOnly(raw: string | null): OnlyRole {
+  return raw === "user" || raw === "assistant" ? raw : null;
+}
+
+/** 角色过滤：`null` = 全部（工具块压成可展开的折叠块），user/assistant = 只要这一方 */
+export type OnlyRole = "user" | "assistant" | null;
+
+/** 本页自己的地址：`sessionId` + 可选 `file` + 可选 `only=user|assistant`（全部走编码后的枚举值） */
+function sessionUrl(sessionId: string, file: string | null, only: OnlyRole): string {
   const params = new URLSearchParams({ view: "session", sessionId });
   if (file !== null) params.set("file", file);
-  if (onlyUser) params.set("only", "user");
+  if (only !== null) params.set("only", only);
   return `/?${params.toString()}`;
 }
 
@@ -54,11 +62,11 @@ ${toEnd}
 </div>`;
 }
 
-/** 概览卡片：消息数 / 工具调用 / 大小 / 时间跨度 + 「只看对话」切换 */
+/** 概览卡片：消息数 / 工具调用 / 大小 / 时间跨度 + 角色切换（全部 / 只看用户 / 只看助手） */
 function overview(
   source: SessionSource,
   toggle: string,
-  onlyUser: boolean,
+  only: OnlyRole,
 ): string {
   const transcript = source.transcript;
   if (transcript === null) return "";
@@ -69,28 +77,31 @@ function overview(
     formatSize(source.sizeBytes),
   ];
   if (span.length > 0) parts.push(span);
-  return `<p class="ov">${parts.join(" · ")} <span class="ov-link">${toggle}${onlyUser ? "（当前只看对话）" : ""}</span></p>`;
+  const current = only === null ? "当前：全部（工具块可展开）" : only === "user" ? "当前：只看用户消息" : "当前：只看助手消息";
+  return `<p class="ov">${parts.join(" · ")} <span class="ov-link">${toggle}</span> <span class="muted">${current}</span></p>`;
 }
 
 /**
  * 正文骨架：左侧粘性目录（宽屏）+ 消息流；窄屏把同一份目录换成顶部折叠块。
  * 目录与消息流共用 `renderTranscript` 的产出，锚点 id 与 href 一一对应。
  */
-function streamOf(source: SessionSource, onlyUser: boolean): { html: string; lastId: string | null } {
+function streamOf(source: SessionSource, only: OnlyRole): { html: string; lastId: string | null } {
   const transcript = source.transcript;
   if (transcript === null) return { html: missingBody(source.sessionId), lastId: null };
   const view = renderTranscript(transcript, {
     dropped: transcript.dropped,
-    onlyUser,
-    expandHref: sessionUrl(source.sessionId, source.file, false),
+    onlyRole: only === null ? undefined : only,
+    expandHref: only === "user" ? sessionUrl(source.sessionId, source.file, null) : null,
   });
   const toc = renderToc(view.toc);
+  const tocTitle = only === "assistant" ? "目录（助手回复）" : "目录（用户消息）";
   const lastId = view.shown === 0 ? null : `m-${view.shown}`;
   return {
     html: `<div class="ses-wrap">
-<aside class="toc">${toc}</aside>
+<details class="toc" open><summary>${tocTitle} ${view.toc.length} 条 · 点标题收起</summary>
+<div class="toc-list">${toc}</div></details>
 <div class="ses-body">
-<details class="toc-fold"><summary>目录（${view.toc.length} 条用户消息）</summary>
+<details class="toc-fold"><summary>${tocTitle} ${view.toc.length} 条</summary>
 <div class="toc-list">${toc}</div>
 </details>
 ${view.body}
@@ -114,19 +125,22 @@ function exitLine(source: SessionSource): string {
   return `已渲染全部 ${messages} 条消息（原文件 ${file}）`;
 }
 
-export function renderSessionPage(source: SessionSource, options: { state: WebState; onlyUser?: boolean }): string {
-  const onlyUser = options.onlyUser === true;
+export function renderSessionPage(
+  source: SessionSource,
+  options: { state: WebState; only?: OnlyRole; /** 旧签名，等价于 only="user" */ onlyUser?: boolean },
+): string {
+  const only: OnlyRole = options.only ?? (options.onlyUser === true ? "user" : null);
   const transcript = source.transcript;
+  const link = (role: OnlyRole, text: string): string => {
+    if (role === only) return `<strong>${text}</strong>`;
+    return `<a href="${escapeHtml(sessionUrl(source.sessionId, source.file, role))}">${text}</a>`;
+  };
   const toggle =
-    transcript === null
-      ? ""
-      : onlyUser
-        ? `<a href="${escapeHtml(sessionUrl(source.sessionId, source.file, false))}">看全部</a>`
-        : `<a href="${escapeHtml(sessionUrl(source.sessionId, source.file, true))}">只看对话</a>`;
+    transcript === null ? "" : [link(null, "全部"), link("user", "只看用户"), link("assistant", "只看助手")].join(" / ");
   // 先渲染消息流：「跳到最新」要指向**实际渲染出的最后一块**，而不是 entries 条数（工具块与空正文都不占块号）
-  const stream = streamOf(source, onlyUser);
+  const stream = streamOf(source, only);
   const body = `${topRow(source, stream.lastId)}
-${overview(source, toggle, onlyUser)}
+${overview(source, toggle, only)}
 ${stream.html}`;
   return shellPage({
     state: options.state,

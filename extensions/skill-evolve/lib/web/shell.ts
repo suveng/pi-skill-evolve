@@ -12,15 +12,14 @@ import type { WebState, WebView } from "./data.ts";
 import { STYLE } from "./style.ts";
 
 /** 导航里的 tab 与顺序（用户 2026-11-08 点名要的顺序：已采纳独立、技能管理排最后） */
-export const TAB_ORDER = ["pending", "approvals", "applied", "done", "reports", "skills", "settings"] as const;
+export const TAB_ORDER = ["pending", "approvals", "applied", "done", "skills", "settings"] as const;
 export type TabView = (typeof TAB_ORDER)[number];
 
 export const VIEW_LABEL: Record<TabView, string> = {
   pending: "待处理",
   approvals: "待审批",
   applied: "已采纳",
-  done: "已处理",
-  reports: "复盘报告",
+  done: "已结束",
   skills: "技能管理",
   settings: "设置",
 };
@@ -42,7 +41,6 @@ export function tabCounts(state: WebState): TabCounts {
     // 已采纳用 summary 的累计值：列表本身有上限（50 条），拿它当总数会永远显示 50
     applied: state.summary.appliedTotal,
     done: state.done.length,
-    reports: state.reports.length,
   };
 }
 

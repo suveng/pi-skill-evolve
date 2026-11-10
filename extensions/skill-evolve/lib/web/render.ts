@@ -23,7 +23,6 @@ import {
   approvalRows,
   doneRows,
   pendingRows,
-  reportRows,
   type ListRow,
   type RowContext,
 } from "./render-rows.ts";
@@ -62,12 +61,8 @@ export const EMPTY: Record<WebView, { text: string; next: string }> = {
     next: "先 <code>/skill-evolve dispatch on</code>，让真实会话自动出提案。",
   },
   done: {
-    text: "暂无已处理记录：还没有回滚、失败或被否决的提案。",
+    text: "暂无已结束记录：还没有回滚、失败或被否决的提案。",
     next: "只有走完终态的 run 才进这里；在跑的 run 看「待处理」。",
-  },
-  reports: {
-    text: "暂无复盘报告：还没有 run 写过 01-findings.json。",
-    next: "先 <code>/skill-evolve run</code> 手动跑一次复盘。",
   },
 };
 
@@ -94,8 +89,6 @@ function rowsOf(page: ViewPage, ctx: RowContext): ListRow[] {
       return appliedRows(page.rows);
     case "done":
       return doneRows(page.rows);
-    default:
-      return reportRows(page.rows, ctx);
   }
 }
 

@@ -11,7 +11,6 @@ import test from "node:test";
 import type { AppliedItem } from "../lib/web/applied.ts";
 import type { ApprovalItem } from "../lib/web/approvals.ts";
 import type { DoneItem, PendingItem, WebState } from "../lib/web/data.ts";
-import type { RunReport } from "../lib/web/reports.ts";
 import { renderPage } from "../lib/web/render.ts";
 import type { SessionRef } from "../lib/web/run-session.ts";
 
@@ -26,7 +25,6 @@ function state(parts: Partial<WebState> = {}): WebState {
     approvals: [],
     applied: [],
     done: [],
-    reports: [],
     summary: { reviewing: 0, stale: 0, pendingApprovals: 0, appliedTotal: 0, rollbackRate: 0 },
     ...parts,
   };
@@ -69,40 +67,22 @@ function doneItem(session: SessionRef): DoneItem {
   return { runId: "run-d-1794133942", status: "rejected", source: "run", level: "-", skill: "demo", at: NOW, detail: "", session };
 }
 
-function reportItem(session: SessionRef): RunReport {
-  return {
-    runId: "run-r-1794133942",
-    status: "reviewed",
-    trigger: "auto",
-    session,
-    startedAt: NOW,
-    findings: { total: 0, rows: [] },
-    proposal: null,
-    review: null,
-    decision: null,
-    verify: null,
-  };
-}
-
-/** 五个视图各塞一条带会话的行，返回整页 HTML */
 function pageWithSession(): Record<string, string> {
   const current = state({
     pending: [pendingItem(SESSION)],
     approvals: [approvalItem(SESSION)],
     applied: [appliedItem(SESSION)],
     done: [doneItem(SESSION)],
-    reports: [reportItem(SESSION)],
   });
   return {
     pending: renderPage(current, "pending", { now: NOW }),
     approvals: renderPage(current, "approvals", { now: NOW }),
     applied: renderPage(current, "applied", { now: NOW }),
     done: renderPage(current, "done", { now: NOW }),
-    reports: renderPage(current, "reports", { now: NOW }),
   };
 }
 
-test("五个视图都能看到会话：链接指向 ?view=session，文案是 sessionId 前 8 位，title 是完整 id", () => {
+test("四个视图都能看到会话：链接指向 ?view=session，文案是 sessionId 前 8 位，title 是完整 id", () => {
   const pages = pageWithSession();
   const href = `/?view=session&amp;sessionId=${SESSION_ID}`;
   for (const [view, html] of Object.entries(pages)) {
