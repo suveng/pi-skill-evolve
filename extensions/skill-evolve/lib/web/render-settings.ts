@@ -55,6 +55,7 @@ function formSection(values: SettingsValues, csrf: string): string {
   const runtime = SETTINGS_BOUNDS.maxRuntimeMs;
   const cap = SETTINGS_BOUNDS.perSessionCap;
   const port = SETTINGS_BOUNDS.port;
+  const window = SETTINGS_BOUNDS.metricsWindowDays;
   return `<form method="post" action="/config">
 <input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
 <input type="hidden" name="view" value="settings">
@@ -75,6 +76,7 @@ function formSection(values: SettingsValues, csrf: string): string {
 ${numRow("idleMs", "空闲去抖（毫秒）", values.idleMs, `${idle.min}–${idle.max}（${humanMs(idle.min)}–${humanMs(idle.max)}）`, "会话空闲这么久才派发复盘；越小越灵敏，但每回合都可能触发")}
 ${numRow("maxRuntimeMs", "单轮上限（毫秒）", values.maxRuntimeMs, `${runtime.min}–${runtime.max}（${humanMs(runtime.min)}–${humanMs(runtime.max)}）`, "复盘子进程超过它就判卡死（stale），可被清理")}
 ${numRow("perSessionCap", "单会话次数", values.perSessionCap, `${cap.min}–${cap.max}`, "同一个会话最多自动复盘几次，防止一轮对话把 token 刷爆")}
+${numRow("metricsWindowDays", "趋势窗口（天）", values.metricsWindowDays, `${window.min}–${window.max}`, "report --week 的指标回看范围；28 天 = 四个整周")}
 ${numRow("port", "面板端口", values.port, `${port.min}–${port.max}`, "改完不会自动迁移：重启面板后新端口才生效")}
 </tbody>
 </table>
@@ -82,7 +84,7 @@ ${numRow("port", "面板端口", values.port, `${port.min}–${port.max}`, "改�
 </form>`;
 }
 
-/** 只读视图：同一份六项，用表格把「现在是什么」摊开 */
+/** 只读视图：同一份七项，用表格把「现在是什么」摊开 */
 function readonlyTable(values: SettingsValues): string {
   return `<table class="rows">
 <tbody>
@@ -91,6 +93,7 @@ function readonlyTable(values: SettingsValues): string {
 <tr><td>空闲去抖</td><td>${values.idleMs} 毫秒（${escapeHtml(humanMs(values.idleMs))}）</td></tr>
 <tr><td>单轮上限</td><td>${values.maxRuntimeMs} 毫秒（${escapeHtml(humanMs(values.maxRuntimeMs))}）</td></tr>
 <tr><td>单会话次数</td><td>${values.perSessionCap}</td></tr>
+<tr><td>趋势窗口</td><td>${values.metricsWindowDays} 天</td></tr>
 <tr><td>面板端口</td><td>${values.port}</td></tr>
 </tbody>
 </table>`;

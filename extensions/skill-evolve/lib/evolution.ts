@@ -171,6 +171,7 @@ export function createEvolution(deps: EvolutionDeps): Evolution {
     queue: deps.queue,
     now,
     maxRuntimeMs: config.maxRuntimeMs,
+    metricsWindowDays: config.metricsWindowDays,
     ...(deps.panel ? { panel: deps.panel } : {}),
   });
 

@@ -13,7 +13,7 @@
 import { loadConfig } from "./config.ts";
 import { INHERIT, isModelSpec, loadModelConfig } from "./model-config.ts";
 
-/** 面板配置页能改的六项；顺序与页面上的字段顺序一致 */
+/** 面板配置页能改的七项；顺序与页面上的字段顺序一致 */
 export interface SettingsValues {
   /** 提案模型（`inherit` = 跟随主会话） */
   propose: string;
@@ -25,6 +25,8 @@ export interface SettingsValues {
   maxRuntimeMs: number;
   /** 单会话最多自动复盘几次 */
   perSessionCap: number;
+  /** 趋势统计回看多少天（report --week 的指标窗口） */
+  metricsWindowDays: number;
   /** Web 面板端口（改了要重启面板） */
   port: number;
 }
@@ -45,6 +47,7 @@ export const SETTINGS_BOUNDS = {
   idleMs: { min: 1_000, max: 600_000 },
   maxRuntimeMs: { min: 60_000, max: 7_200_000 },
   perSessionCap: { min: 1, max: 200 },
+  metricsWindowDays: { min: 7, max: 365 },
   port: { min: 1_024, max: 65_535 },
 } as const;
 
@@ -60,6 +63,7 @@ export function readSettings(evolutionDir: string): SettingsValues {
     idleMs: config.idleMs,
     maxRuntimeMs: config.maxRuntimeMs,
     perSessionCap: config.perSessionCap,
+    metricsWindowDays: config.metricsWindowDays,
     port: config.web.port,
   };
 }
@@ -84,7 +88,7 @@ function parseModel(raw: string): string | null {
 export const FOLLOW_HOST_TEXT = `跟随主会话（${INHERIT}）`;
 
 /**
- * 校验六项。**任何一项不合法就整体拒绝**（不存半份配置）：
+ * 校验七项。**任何一项不合法就整体拒绝**（不存半份配置）：
  * 半份生效会让人分不清「我改的那个到底进没进」，而下一次再改时又是基于这份半成品。
  */
 export function parseSettingsForm(form: URLSearchParams): SettingsParse {
@@ -108,6 +112,7 @@ export function parseSettingsForm(form: URLSearchParams): SettingsParse {
     ["idleMs", "idleMs", "空闲去抖（毫秒）"],
     ["maxRuntimeMs", "maxRuntimeMs", "单轮上限（毫秒）"],
     ["perSessionCap", "perSessionCap", "单会话次数"],
+    ["metricsWindowDays", "metricsWindowDays", "趋势窗口（天）"],
     ["port", "port", "端口"],
   ];
   for (const [field, key, label] of numeric) {
@@ -119,6 +124,8 @@ export function parseSettingsForm(form: URLSearchParams): SettingsParse {
     else if (field === "port") patch.port = value;
     else if (field === "idleMs") patch.idleMs = value;
     else if (field === "maxRuntimeMs") patch.maxRuntimeMs = value;
+    else if (field === "perSessionCap") patch.perSessionCap = value;
+    else if (field === "metricsWindowDays") patch.metricsWindowDays = value;
     else patch.perSessionCap = value;
   }
 
@@ -134,6 +141,7 @@ export function settingsPatchText(patch: SettingsPatch): string {
     idleMs: "空闲去抖",
     maxRuntimeMs: "单轮上限",
     perSessionCap: "单会话次数",
+    metricsWindowDays: "趋势窗口",
     port: "端口",
   };
   const changed = (Object.keys(patch) as SettingsField[]).map((key) => names[key]);

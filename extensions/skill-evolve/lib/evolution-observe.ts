@@ -25,6 +25,8 @@ export interface ObserverDeps {
   now: () => number;
   /** 单 run 上限（来自配置）：pid 还活着但跑超过它也算卡死 */
   maxRuntimeMs?: number;
+  /** 趋势窗口天数（来自配置）：缺省用 METRICS_WINDOW_DAYS */
+  metricsWindowDays?: number;
   panel?: PanelDeps;
 }
 
@@ -64,7 +66,7 @@ export function createObserver(deps: ObserverDeps): Observer {
   /** 指标落盘：按周聚合后逐行 append，同 week 已有就跳过（appendMetrics 内部去重） */
   const weekReportText: Observer["weekReportText"] = async () => {
     const now = deps.now();
-    const events = readEvents(deps.telemetryDir, METRICS_WINDOW_DAYS, now);
+    const events = readEvents(deps.telemetryDir, deps.metricsWindowDays ?? METRICS_WINDOW_DAYS, now);
     const runs: MetricsRun[] = listRuns(deps.evolutionDir, 50).map((run) => ({
       runId: run.runId,
       status: run.status,

@@ -204,3 +204,15 @@ test("normalizeConfig：ui 两个开关缺字段回退 false，显式打开才�
   assert.deepEqual(normalizeConfig({ ui: { widget: "yes", entries: 1 } }).ui, { widget: false, entries: false }, "非布尔值一律回退");
   assert.deepEqual(normalizeConfig({ ui: "on" }).ui, { widget: false, entries: false }, "整块类型不对就整块回退");
 });
+
+/**
+ * 趋势窗口（2026-11-10 从写死 28 改成配置）：窗口是「四个整周」还是「一年」，结论完全不同，
+ * 所以越界不许静默截断 —— 一律回落 28，并且能被写进顶层键。
+ */
+test("metricsWindowDays：默认 28，越界回落 28，合法值原样保留", () => {
+  assert.equal(normalizeConfig({}).metricsWindowDays, 28);
+  assert.equal(normalizeConfig({ metricsWindowDays: 90 }).metricsWindowDays, 90);
+  assert.equal(normalizeConfig({ metricsWindowDays: 3 }).metricsWindowDays, 28, "不足一周的窗口看不出趋势");
+  assert.equal(normalizeConfig({ metricsWindowDays: 400 }).metricsWindowDays, 28);
+  assert.equal(normalizeConfig({ metricsWindowDays: "30" }).metricsWindowDays, 28, "字符串不是数字");
+});
