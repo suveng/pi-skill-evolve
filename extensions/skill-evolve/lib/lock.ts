@@ -119,7 +119,8 @@ export async function acquireLock(options: AcquireOptions): Promise<AcquireResul
     }
     try {
       await fs.promises.writeFile(path.join(dir, "owner.json"), `${JSON.stringify(options.owner)}\n`, "utf8");
-      log(`[skill-evolve] 起锁：pid ${options.owner.pid}（${dir}）`);
+      // 面板每 30 秒补扫一次队列，这行会一天刷 2880 条：只在调试开关下打，失败分支照旧必打
+      if (process.env.PI_SKILL_EVOLVE_DEBUG) log(`[skill-evolve] 起锁：pid ${options.owner.pid}（${dir}）`);
       return { ok: true };
     } catch (error) {
       // 目录建好了但 owner 写不进去：立刻还回去，避免留下无人认领的锁
@@ -182,7 +183,8 @@ export function acquireLockSync(options: AcquireOptions): AcquireResult {
     }
     try {
       writeOwnerFile(dir, options.owner);
-      log(`[skill-evolve] 起锁：pid ${options.owner.pid}（${dir}）`);
+      // 面板每 30 秒补扫一次队列，这行会一天刷 2880 条：只在调试开关下打，失败分支照旧必打
+      if (process.env.PI_SKILL_EVOLVE_DEBUG) log(`[skill-evolve] 起锁：pid ${options.owner.pid}（${dir}）`);
       return { ok: true };
     } catch (error) {
       log(`[skill-evolve] 写 owner.json 失败：${String(error)}`);
