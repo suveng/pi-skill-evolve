@@ -7,6 +7,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { listSkillDirs } from "./hard-rules.ts";
+import { ATTRIBUTION_KEYS } from "./metrics.ts";
 import { createReferenceScan } from "./proc.ts";
 import { readFrontmatter } from "./proposal.ts";
 import { readQueue, type QueueItem } from "./queue.ts";
@@ -182,7 +183,8 @@ export function buildWeeklyReport(input: WeeklyInput): string {
   // 分母是「加载 + 尝试失败」：只除加载数会算出 >100% 的假值
   lines.push(`尝试失败率 ${percent(failed, loaded + failed)}（失败 ${failed} / 尝试 ${loaded + failed}）`);
   const attributionTotal = [...attribution.values()].reduce((sum, count) => sum + count, 0);
-  const distribution = ["A", "B", "C", "D", "E", "F", "G", "H"]
+  // 只用 metrics 的字母表当唯一事实：新增归因（I 正文 / J 该用没用）自动出现在周报里
+  const distribution = ATTRIBUTION_KEYS
     .map((key) => `${key} ${attribution.get(key) ?? 0}`)
     .join(" · ");
   lines.push(`归因分布：${distribution}${attributionTotal === 0 ? "（本次无归因记录）" : ""}`);

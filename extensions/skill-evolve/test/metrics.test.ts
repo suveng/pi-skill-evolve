@@ -128,11 +128,14 @@ function emptyRow(week: string, ts: number) {
   };
 }
 
-test("归因分布含 H 与 I：与技能领域无关 / 正文与实现不符，各自单独一列", () => {
-  // G = 领域内缺词（该改 description），H = 与这个技能无关（不该改），I = 正文写错了（该改正文）
+test("归因分布含 H / I / J：领域无关 / 正文写错 / 该用没用，各自单独一列", () => {
+  // G = 领域内缺词（该改 description），H = 与这个技能无关（不该改），
+  // I = 正文写错了（该改正文），J = 规则在场但没照做（该让规则更早出场）
   assert.ok((ATTRIBUTION_KEYS as readonly string[]).includes("H"));
   assert.equal((ATTRIBUTION_KEYS as readonly string[]).indexOf("H"), 7);
   assert.ok((ATTRIBUTION_KEYS as readonly string[]).includes("I"));
   assert.equal((ATTRIBUTION_KEYS as readonly string[]).indexOf("I"), 8);
-  assert.equal(ATTRIBUTION_KEYS.length, 9);
+  assert.ok((ATTRIBUTION_KEYS as readonly string[]).includes("J"));
+  assert.equal((ATTRIBUTION_KEYS as readonly string[]).indexOf("J"), 9);
+  assert.equal(ATTRIBUTION_KEYS.length, 10);
 });
