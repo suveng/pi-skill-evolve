@@ -28,6 +28,8 @@ export interface WebPidInfo {
   url: string;
   /** 起监听的毫秒戳 */
   startedAt: number;
+  /** 面板代码的扩展版本（可选：老记录没有这个字段，按「版本未知」处理） */
+  version?: string;
 }
 
 export function webPidFile(evolutionDir: string): string {
@@ -73,7 +75,14 @@ export function readWebPid(evolutionDir: string): WebPidInfo | null {
     if (!Number.isInteger(port) || (port as number) <= 0) return null;
     if (typeof url !== "string" || url.length === 0) return null;
     if (typeof startedAt !== "number" || !Number.isFinite(startedAt)) return null;
-    return { pid: pid as number, host, port: port as number, url, startedAt: startedAt as number };
+    return {
+      pid: pid as number,
+      host,
+      port: port as number,
+      url,
+      startedAt: startedAt as number,
+      ...(typeof info.version === "string" && info.version.length > 0 ? { version: info.version } : {}),
+    };
   } catch {
     return null;
   }

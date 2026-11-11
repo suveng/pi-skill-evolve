@@ -32,9 +32,25 @@ pi install git:github.com/suveng/pi-skill-evolve
 
 ## 面板
 
-`http://127.0.0.1:7788` —— 六个 tab：待处理 / 待审批 / 已采纳 / 已处理 / 复盘报告 / 技能管理。
+`http://127.0.0.1:7788` —— 四个流程 tab：待处理 / 待审批 / 已采纳 / 已结束，外加技能管理 / 设置。
+同一份 run 只出现在一个 tab（归属由 `lib/web/tab-origin.ts` 唯一判定），详情页顶部写明「现在在 / 为什么 / 证据」。
 
 只绑 `127.0.0.1`、零鉴权、写操作带 CSRF 与同源校验；远程看用 `ssh -L 7788:127.0.0.1:7788`。
+
+### 面板是独立进程（可单独重启）
+
+面板不再跑在 pi 进程里：`session_start` 时由 `lib/web/spawn-panel.ts` 拉起一个独立 node 子进程，
+`locks/web.json` 记 `{pid, url, version}`。装上新版本后下次会话启动会自动换进程，
+也可以完全不碰 pi 会话，直接运维：
+
+```bash
+node scripts/panel.mjs status      # 谁在跑、什么版本
+node scripts/panel.mjs restart     # 重启（换版本后就是这条）
+node scripts/panel.mjs stop        # 停掉
+```
+
+子进程的代码复制到 `.pi/evolution/runtime/panel-v<版本>/` 再跑 —— node 拒绝对 `node_modules`
+里的 `.ts` 做类型剥离，不复制就起不来。
 
 ### 流水线
 

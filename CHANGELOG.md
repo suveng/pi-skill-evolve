@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.22] - 2026-11-11
+
+面板脱离 pi 进程，可以单独重启（用户：「做成你也可以重启的吧」）。
+
+- 新增 `lib/web/spawn-panel.ts`：`decidePanel` 按「有没有记录 / 活着没 / 版本同不同 / 端口同不同」决定复用、换版本、救活或新起；`materializeExtension` 把扩展目录按版本复制到 `.pi/evolution/runtime/panel-v<版本>/`
+- 新增 `lib/web/child-main.ts`：独立进程入口，自己 `createEvolution` 后接六个写操作（与 TUI 同一份实现），写 `locks/web.json`，SIGTERM 先关监听再退出
+- 新增 `scripts/panel.mjs`：`status / start / stop / restart`，人和 agent 都能用，不必重启 pi 会话
+- `locks/web.json` 增加可选 `version` 字段；老记录没有该字段按「版本未知」处理，会主动换新
+- 修：`startWebPanel` 的 `server.unref()` 让独立进程在 `runChild` 返回后立刻退出（端口只活 100ms）→ 新增 `keepAlive` 选项，子进程传 `true`
+- 测试：713 → 722（新增 `test/spawn-panel.test.ts` 9 条）
+
 ## [0.1.15] - 2026-11-09
 
 两处面板口径按用户实测反馈调整。

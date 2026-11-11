@@ -1,6 +1,6 @@
 {
   "name": "pi-skill-evolve",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "技能进化：采集会话中的技能曝光/加载，异步复盘、生成改进提案并独立评审，附本机 Web 管理面板",
   "keywords": [
     "pi-package",
@@ -31,6 +31,7 @@
   "files": [
     "extensions",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "scripts"
   ]
 }

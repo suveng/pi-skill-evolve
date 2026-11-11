@@ -48,6 +48,12 @@ export interface WebPanelOptions extends WriteHooks {
   host?: string;
   /** CSRF 令牌：不给就启动时随机生成；单测注入固定值便于构造合法请求 */
   csrf?: string;
+  /**
+   * 让监听自己撑住进程（默认 false = `unref()`）。
+   * 嵌入式（跑在 pi 进程里）必须 false：pi 退出不能被面板挂住；
+   * 独立子进程（`child-main.ts`）必须 true：否则 runChild 返回后进程立刻退出，端口只活了 100ms。
+   */
+  keepAlive?: boolean;
 }
 
 export interface WebPanel {
@@ -288,8 +294,8 @@ export function startWebPanel(options: WebPanelOptions): Promise<WebPanelResult>
       server.removeListener("error", onError);
       // 起监听之后再出错（客户端重置等）只记日志：不能让它变成未捕获异常
       server.on("error", (error) => console.error(`[skill-evolve] Web 面板运行时错误：${String(error)}`));
-      // 面板是附属物：pi 退出时不该被它挂着
-      server.unref();
+      // 嵌入式：面板是附属物，pi 退出时不该被它挂着；独立子进程自己就是主人，必须撑住
+      if (options.keepAlive !== true) server.unref();
       const address = server.address();
       actualPort = address && typeof address === "object" ? address.port : port;
       const url = `http://${host}:${actualPort}`;

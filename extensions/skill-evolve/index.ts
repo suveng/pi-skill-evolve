@@ -11,6 +11,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { matchSubcommand, runCommand } from "./lib/command.js";
 import { loadConfig } from "./lib/config.js";
+import { DEFAULT_CONFIG } from "./lib/config.js";
 import { runConfigCommand } from "./lib/config-command.js";
 import { createEvolution, type Evolution } from "./lib/evolution.js";
 import { logLine } from "./lib/logfile.js";
@@ -18,7 +19,8 @@ import { deliverNotifications } from "./lib/notify.js";
 import { entryLines, type PanelEntry, type PanelState } from "./lib/panel.js";
 import { renderRecovery } from "./lib/recover.js";
 import { renderPanel, writeEntry, type UiPanelHost } from "./lib/ui-gate.js";
-import { startWebPanel } from "./lib/web/server.js";
+import { ensurePanel } from "./lib/web/spawn-panel.js";
+import { packageVersionOf } from "./lib/supervisor-runtime.js";
 import { createWebLifecycle } from "./lib/web/autostart.js";
 import { moveRunToTrash } from "./lib/web/trash.js";
 
@@ -91,20 +93,17 @@ export default function skillEvolve(pi: ExtensionAPI): void {
     evolutionDir: () => evolutionDirOf(lastCwd),
     log: note,
     queue: withFileMutationQueue,
-    // 所有写操作都调与 TUI 完全相同的实现，web 层只做校验与转发（自己再写一遍就有两套语义）
+    // 面板跑在独立子进程里（2026-11-11）：换版本重启面板不必再重启整个 pi 会话。
+    // 写操作仍然调与 TUI 完全相同的 lib 实现（子进程里 createEvolution 后再接六个 hook）。
     start: (port) => {
       const cwd = lastCwd;
-      const evo = instance(cwd);
-      return startWebPanel({
+      return ensurePanel({
         evolutionDir: evolutionDirOf(cwd),
-        ...(port === undefined ? {} : { port }),
-        onApprove: (runId) => evo.apply.approve(runId, false),
-        onReject: (runId) => evo.apply.reject(runId),
-        onToggle: (field, next) => evo.setFlag(field, next), // 四个开关各自一个入口，网页点哪个只切哪个
-        // 会话文件为空是允许的：派发时按「没有索引」处理，不会因为从网页点就少走一道
-        onRunNow: () => evo.runNow({ sessionId: "web-panel" }),
-        onCleanup: async (runId) => moveRunToTrash(evolutionDirOf(cwd), runId),
-        onSettings: (patch) => evo.setSettings(patch), // 配置页六项：校验在 web 层，写盘与命令同一条路
+        cwd,
+        extensionDir: path.dirname(fileURLToPath(import.meta.url)),
+        version: packageVersionOf(fileURLToPath(import.meta.url)),
+        port: port ?? DEFAULT_CONFIG.web.port,
+        log: note,
       });
     },
   });
