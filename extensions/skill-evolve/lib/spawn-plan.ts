@@ -144,3 +144,26 @@ export function uniqueRunId(evolutionDir: string, sessionId: string, ts: number)
   }
   return candidate;
 }
+
+/**
+ * 复盘子进程的环境变量：父进程的 `env` 原样带上，只摘掉「抢守护进程」的那几个开关。
+ *
+ * 为什么必须摘（2026-11-11 实测 run 260928fa-1794361982）：
+ * 父 pi 由飞书桥接以 `PI_FEISHU_DAEMON=1` 拉起，这个变量被子进程继承；子 pi 加载桥接扩展后
+ * 走去 `start()` → 读到别的 daemon 已持有网关锁 → `process.exit(0)` ——
+ * 于是复盘子进程只输出一行 `[feishu] daemon found existing owner, exiting` 就没了，
+ * 整个复盘被判「子进程已退出」。
+ *
+ * 复盘只需要「读材料 + 写提案」，不该去当任何守护进程；其余变量（路径、代理、模型凭据）一律保留。
+ */
+const CHILD_ENV_DROPS: readonly string[] = ["PI_FEISHU_DAEMON"];
+
+export function stripDaemonFlags(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const next: NodeJS.ProcessEnv = { ...env };
+  for (const key of CHILD_ENV_DROPS) delete next[key];
+  return next;
+}
+
+export function childEnvOf(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...stripDaemonFlags(env), SKILL_EVOLVE_CHILD: "1" };
+}

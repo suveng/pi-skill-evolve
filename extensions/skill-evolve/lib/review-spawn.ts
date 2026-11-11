@@ -12,7 +12,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { patchRunRecordSync } from "./runs.ts";
 import { guardBusy } from "./single-flight.ts";
-import { spawnDetached } from "./spawn-plan.ts";
+import { spawnDetached, stripDaemonFlags } from "./spawn-plan.ts";
 import { ensureSupervisorRuntime, type RuntimeOptions } from "./supervisor-runtime.ts";
 import type { TelemetryWriter } from "./telemetry.ts";
 
@@ -79,7 +79,9 @@ export function spawnReviewSupervisor(options: SpawnSupervisorOptions): number |
   });
   if (occupant) return null;
 
-  const env = { ...(options.env ?? process.env) };
+  // 督导自己不是复盘子进程，同一个 env 还要传给评审 Agent：摘掉「抢守护进程」的开关，
+  // 否则评审用的 pi 一加载桥接扩展就被 process.exit 带走（子进程模式下同样会死）
+  const env = stripDaemonFlags(options.env ?? process.env);
   // 督导自己不是 pi 子代理：把「别再采集」的标记去掉，避免它起评审子进程时语义混乱
   delete env.SKILL_EVOLVE_CHILD;
   // node_modules 里的 .ts 不能直接跑（ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING）：先搬到工作区的

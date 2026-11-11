@@ -58,6 +58,17 @@ function alive(pid) {
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
+/** 没显式给 --port 时，用工作区配置里的端口 */
+function readConfigPort() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(evolutionDir, "config.json"), "utf8"));
+    const port = raw?.web?.port;
+    return Number.isInteger(port) && port > 0 ? port : 7788;
+  } catch {
+    return 7788;
+  }
+}
+
 /** 复制扩展目录（按版本缓存）；返回 child-main.ts 的绝对路径 */
 function materialize() {
   const target = path.join(evolutionDir, "runtime", `panel-v${version}`);
@@ -100,14 +111,17 @@ async function stop() {
 
 async function start() {
   const lock = readLock();
-  if (lock && alive(lock.pid)) {
+  const wanted = Number(argOf("port", readConfigPort()));
+  // 端口被明确指定、且和现有面板不一样 → 先停再按新端口起（否则用户以为换了端口，实际还是老的）
+  if (lock && alive(lock.pid) && lock.port === wanted) {
     console.log(`面板已在跑：${lock.url}（pid ${lock.pid} v${lock.version ?? "?"}）`);
     return 0;
   }
-  const config = JSON.parse(fs.existsSync(path.join(evolutionDir, "config.json"))
-    ? fs.readFileSync(path.join(evolutionDir, "config.json"), "utf8")
-    : "{}");
-  const port = Number(argOf("port", config?.web?.port ?? 7788));
+  if (lock && alive(lock.pid)) {
+    console.log(`现有面板在 ${lock.url}，与要求的端口 ${wanted} 不同，先停掉`);
+    if ((await stop()) !== 0) return 1;
+  }
+  const port = wanted;
   const entry = materialize();
   const env = {
     ...process.env,
