@@ -119,21 +119,48 @@ function cwdOf(runRaw: string | undefined): string {
   return process.cwd();
 }
 
+/**
+ * 「结论已经写完、不会再有提案」的 run 状态：督导看到就直接收工，不再干等 15 分钟。
+ *
+ * 为什么（2026-11-11 实测 run ce43f48b-1794363796）：分析判定「不需要改」的 run 状态是 `analyzed`、
+ * 永远不会写 02-proposal.json，可督导仍在轮询，白占一个进程直到 proposal-timeout。
+ */
+const NO_PROPOSAL_TERMINAL = new Set(["analyzed", "failed", "rejected", "superseded", "abandoned"]);
+
+/** 读 run.json 的状态；读不出来当「还不确定」，继续等 */
+function runStatusOf(read: (file: string) => string | undefined, runFile: string): string | undefined {
+  const raw = read(runFile);
+  if (raw === undefined) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as { status?: unknown };
+    return typeof parsed.status === "string" ? parsed.status : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** 等提案文件出现；超时也再读一次（可能刚好落盘） */
 async function waitForProposal(
   file: string,
   deps: ReviewSupervisorDeps,
   read: (file: string) => string | undefined,
-): Promise<string | undefined> {
+  runFile?: string,
+): Promise<{ text?: string; settled?: string }> {
   const now = deps.now ?? Date.now;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const deadline = now() + (deps.proposalTimeoutMs ?? PROPOSAL_TIMEOUT_MS);
   while (now() < deadline) {
     const text = read(file);
-    if (text !== undefined) return text;
+    if (text !== undefined) return { text };
+    // 状态已经终态且没有提案：不用等满 15 分钟（每轮多一个进程挂着就是这么来的）
+    if (runFile !== undefined) {
+      const status = runStatusOf(read, runFile);
+      if (status !== undefined && NO_PROPOSAL_TERMINAL.has(status)) return { settled: status };
+    }
     await sleep(deps.pollMs ?? PROPOSAL_POLL_MS);
   }
-  return read(file);
+  const text = read(file);
+  return text === undefined ? {} : { text };
 }
 
 function stamp(ts: number): { reviewedAt: number; reviewedAtIso: string } {
@@ -155,13 +182,20 @@ export async function runReviewSupervisor(deps: ReviewSupervisorDeps): Promise<S
   const sameModel = proposerModel.length > 0 && proposerModel === reviewerModel;
   const base = { reviewerModel, proposerModel, sameModel };
 
-  const proposalText = await waitForProposal(path.join(runDir, "02-proposal.json"), deps, read);
+  const waited = await waitForProposal(path.join(runDir, "02-proposal.json"), deps, read, runFile);
+  const proposalText = waited.text;
   const proposal = parseProposal(proposalText);
   if (!proposal) {
+    const reason =
+      waited.settled === "analyzed"
+        ? "analyzed-no-proposal"
+        : proposalText === undefined
+          ? "proposal-timeout"
+          : "proposal-unreadable";
     const record: ReviewRecord = {
       ...base,
       status: "skipped",
-      reason: proposalText === undefined ? "proposal-timeout" : "proposal-unreadable",
+      reason,
       blocking: [],
       ...stamp(now()),
     };

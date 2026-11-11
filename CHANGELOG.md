@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.26] - 2026-11-11
+
+- 修：督导不再为「判定不需要改」的 run 空等 15 分钟。`analyzed` / `failed` / `rejected` / `superseded` / `abandoned` 且没有 `02-proposal.json` 时，`waitForProposal` 立刻收工，`03-review.json` 记 `reason=analyzed-no-proposal`
+- 修：`collectPanelState` 的「复盘中」不再把这种终态算进去（实测面板头写「复盘中 1」，列表却写「已结束 1」）
+
 ## [0.1.25] - 2026-11-11
 
 - 修：`analyzed` 且没有 `02-proposal.json` 的 run（分析判定不需要改）原本挂「复盘报告」页，该页删掉后它在**任何 tab 里都看不到**（实测 run ce43f48b-1794363796）。现在归「已结束」，原因写「分析判定不需要改（终态）」，证据给 `run.json` / `01-findings.json`

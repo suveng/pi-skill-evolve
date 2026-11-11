@@ -197,13 +197,28 @@ test("collectPanelState：reviewing 只数活着的 run，staleCount 覆盖「�
   assert.equal(youngDead.staleCount, 4, "此轮 alive 全为假：r-alive 也成了死 pid，四条全列进卡死，面板与列表数字一致");
 });
 
+/** 造一份提案文件：有提案才谈得上「评审中」 */
+function writeProposal(dir: string, runId: string): void {
+  fs.writeFileSync(
+    path.join(dir, "runs", runId, "02-proposal.json"),
+    `${JSON.stringify({ skill: "demo", candidateFile: "candidate/demo/SKILL.md" }, null, 2)}\n`,
+  );
+}
+
 test("collectPanelState：analyzed 的 run 进程死掉不算「复盘」，督导活着才算", () => {
   const dir = tmpDir();
   writeRun(dir, "a-dead", { status: "analyzed", pid: 3001, dispatchedAt: NOW - 2 * MINUTE });
   writeRun(dir, "a-live", { status: "analyzed", pid: 1, dispatchedAt: NOW - 2 * MINUTE });
   writeRun(dir, "a-sup", { status: "analyzed", pid: 3002, supervisorPid: 1, dispatchedAt: NOW - 3 * MINUTE });
+  writeRun(dir, "a-nochange", { status: "analyzed", pid: 1, dispatchedAt: NOW - 4 * MINUTE });
+  // 「还在评审」的前提是真有提案：analyzed 又没有 02-proposal.json 是「判定不需要改」的终态
+  for (const id of ["a-dead", "a-live", "a-sup"]) writeProposal(dir, id);
   const state = collectPanelState({ evolutionDir: dir, now: NOW, alive: (pid) => pid === 1 });
-  assert.equal(state.reviewing, 2, "a-dead 结论已出且进程不在：不再算「复盘」；a-live 与有活督导的 a-sup 算");
+  assert.equal(
+    state.reviewing,
+    2,
+    "a-dead 进程不在不算；a-live 与有活督导的 a-sup 算；a-nochange 没有提案 = 判定不需要改，也不算",
+  );
 });
 
 test("panelWidget / statusLine：卡死压过待批，且不显示「复盘 0」", () => {

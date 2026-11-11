@@ -50,6 +50,11 @@ function appliedAtOf(evolutionDir: string, runId: string, fallback: number): num
   }
 }
 
+/** 有没有提案文件：analyzed 时用它区分「已出提案」与「判定不用改」 */
+function hasProposalOf(evolutionDir: string, runId: string): boolean {
+  return fs.existsSync(path.join(evolutionDir, "runs", runId, "02-proposal.json"));
+}
+
 export function collectPanelState(input: {
   evolutionDir: string;
   now?: number;
@@ -78,6 +83,8 @@ export function collectPanelState(input: {
     // 会永远挂在面板头上（2026-11-08 真事：报「复盘中 8」，实际一个进程都没在跑）。
     reviewing: runs.filter((run) => {
       if (!IN_FLIGHT.has(run.status)) return false;
+      // analyzed 且没有 02-proposal.json = 分析判定不需要改（终态），别再报「复盘中」
+      if (run.status === "analyzed" && !hasProposalOf(input.evolutionDir, run.runId)) return false;
       if (classifyStale(run, now, staleDeps).stale) return false;
       // dispatched 也要看 pid：进程都没了，说「复盘中」就是骗人（与待处理页同一判据）
       if (run.status === "dispatched") {
