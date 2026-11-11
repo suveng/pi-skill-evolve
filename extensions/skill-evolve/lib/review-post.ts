@@ -49,18 +49,32 @@ export const SUMMARY_MAX = 80;
 
 /** 从模型输出里抠 JSON：容忍 ```json 围栏与前后废话，抠不出就当解析失败 */
 export function parseReviewJson(text: string): { json?: Record<string, unknown>; error?: string } {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
-  const body = (fenced ? fenced[1] : text).trim();
-  const start = body.indexOf("{");
-  const end = body.lastIndexOf("}");
-  if (start < 0 || end <= start) return { error: `bad-json: 输出里没有 JSON 对象（${body.slice(0, 80)}）` };
-  try {
-    const parsed: unknown = JSON.parse(body.slice(start, end + 1));
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return { error: "bad-json: 顶层不是对象" };
-    return { json: parsed as Record<string, unknown> };
-  } catch (error) {
-    return { error: `bad-json: ${(error as Error).message}` };
+  // 评审输出里经常先贴一段候选内容（比如带 ```plantuml 的 description），
+  // 只取「第一个围栏」会把这段示例当成正文，抠不到 JSON 就误判 bad-json。
+  // 所以把所有围栏都当候选，最后才退回全文；谁先解析出对象用谁。
+  const bodies: string[] = [];
+  const fences = /```[\w+-]*\s*([\s\S]*?)```/g;
+  for (let hit = fences.exec(text); hit !== null; hit = fences.exec(text)) {
+    const body = hit[1]?.trim() ?? "";
+    if (body.length > 0) bodies.push(body);
   }
+  bodies.push(text.trim());
+
+  let lastError = "";
+  for (const body of bodies) {
+    const start = body.indexOf("{");
+    const end = body.lastIndexOf("}");
+    if (start < 0 || end <= start) continue;
+    try {
+      const parsed: unknown = JSON.parse(body.slice(start, end + 1));
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) continue;
+      return { json: parsed as Record<string, unknown> };
+    } catch (error) {
+      lastError = (error as Error).message;
+    }
+  }
+  if (lastError.length > 0) return { error: `bad-json: ${lastError}` };
+  return { error: `bad-json: 输出里没有 JSON 对象（${text.trim().slice(0, 80)}）` };
 }
 
 function checkEvidence(raw: unknown): ReviewEvidence | string {

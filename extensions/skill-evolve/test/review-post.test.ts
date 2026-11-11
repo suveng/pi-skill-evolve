@@ -27,6 +27,31 @@ test("合法 pass 返回 ok，且 summary / passed 原样带出", () => {
 test("带 ```json 围栏与前后废话也能抠出 JSON", () => {
   const text = `好的，结论如下：\n\`\`\`json\n${GOOD_PASS}\n\`\`\`\n以上。`;
   assert.equal(parseReviewJson(text).json?.verdict, "pass");
+
+test("候选内容里带 ```plantuml 围栏时，不能把那段示例当成 JSON 正文", () => {
+  // 2026-11-11 真实事故：评审先贴了候选 description（含 ```plantuml），
+  // 旧实现只取第一个围栏 → 报「bad-json: 输出里没有 JSON 对象（plantuml /）」。
+  const text = [
+    "我先看一眼候选内容：",
+    "```plantuml",
+    "@startuml",
+    "A -> B",
+    "@enduml",
+    "```",
+    "结论如下：",
+    "```json",
+    '{"verdict":"revise","blocking":[{"file":".pi/skills/x/SKILL.md","line":3,"quote":"q","why":"w"}],"passed":[]}',
+    "```",
+  ].join("\n");
+  const parsed = parseReviewJson(text);
+  assert.equal(parsed.error, undefined);
+  assert.equal(parsed.json?.verdict, "revise");
+});
+
+test("围栏里没有对象时退回全文找 JSON", () => {
+  const text = "```text\n不是 JSON\n```\n最终：{\"verdict\":\"pass\",\"blocking\":[],\"passed\":[]}";
+  assert.equal(parseReviewJson(text).json?.verdict, "pass");
+});
   assert.equal(postProcessReview(text).status, "ok");
 });
 
