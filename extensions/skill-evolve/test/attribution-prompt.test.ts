@@ -37,3 +37,12 @@ test("字母表与归因表对得上：A..J 十个", () => {
   assert.match(text, /只许用这十个字母/);
   assert.deepEqual([...ATTRIBUTION_KEYS], ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]);
 });
+
+test("I 类只认返工证据：提示词里有这一节，且提案通道写明 G/I/J", () => {
+  const text = template();
+  assert.match(text, /### 返工证据/, "缺「返工证据」小节");
+  assert.match(text, /同处改两次/, "缺「同处改两次」这类证据");
+  assert.match(text, /先红后绿/, "缺「先红后绿」这类证据");
+  assert.match(text, /用户当场纠正/, "缺「用户当场纠正」这类证据");
+  assert.match(text, /`G` \/ `I` \/ `J` \+ `high` \*\*必须\*\*出提案/, "提案通道没写全 G/I/J");
+});
