@@ -262,6 +262,7 @@ export function readRunDetail(evolutionDir: string, runId: string): RunDetail | 
     runRelDir: `runs/${runId}`,
     ...(queueItem ? { queue: queueItem } : {}),
     runStatus: status,
+    hasProposal: fs.existsSync(path.join(runDir, "02-proposal.json")),
   });
   return {
     runId,

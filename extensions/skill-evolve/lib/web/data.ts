@@ -11,6 +11,8 @@
  * 这里只留**视图形状 + 聚合入口**：四类待处理条目的判定在 ./pending.ts，已处理在 ./done.ts，
  * 待审批 / 已采纳 / 报告各自一个文件 —— 合在一起必然破 300 行闸门。
  */
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { collectPanelState } from "../panel.ts";
 import { readQueue } from "../queue.ts";
 import { listRuns } from "../runs.ts";
@@ -67,12 +69,20 @@ export function collectWebState(input: { evolutionDir: string } & WebStateDeps):
   const panel = collectPanelState({ evolutionDir });
   // 每个 run 只允许出现在一个 tab：先按「已采纳 > 已结束 > 待审批 > 待处理」顺位算归属，
   // 再把低顺位里的重复项剔掉（判据唯一事实在 ./tab-origin.ts，别在这里另写一套）
-  const originInputs = new Map<string, { queue?: (typeof items)[number]; runStatus?: string }>();
+  const originInputs = new Map<string, { queue?: (typeof items)[number]; runStatus?: string; hasProposal: boolean }>();
+  const hasProposal = (runId: string): boolean =>
+    fs.existsSync(path.join(evolutionDir, "runs", runId, "02-proposal.json"));
   for (const item of items) {
-    originInputs.set(item.runId, { ...(originInputs.get(item.runId) ?? {}), queue: item });
+    originInputs.set(item.runId, {
+      ...(originInputs.get(item.runId) ?? { hasProposal: hasProposal(item.runId) }),
+      queue: item,
+    });
   }
   for (const run of runs) {
-    originInputs.set(run.runId, { ...(originInputs.get(run.runId) ?? {}), runStatus: run.status });
+    originInputs.set(run.runId, {
+      ...(originInputs.get(run.runId) ?? { hasProposal: hasProposal(run.runId) }),
+      runStatus: run.status,
+    });
   }
   const tabOf = (runId: string): RunTab =>
     originOfRun({ runId, runRelDir: `runs/${runId}`, ...(originInputs.get(runId) ?? {}) }).tab;

@@ -46,6 +46,8 @@ export interface OriginInput {
   queue?: QueueItem;
   /** run.json 里的状态（读不到 = undefined） */
   runStatus?: string;
+  /** 磁盘上有没有 02-proposal.json（analyzed 时用它区分「已出提案」与「判定不用改」） */
+  hasProposal?: boolean;
 }
 
 /** 队列状态里属于「已结束」的那一组：与 done.ts 的 run 状态清单互补 */
@@ -85,6 +87,15 @@ export function originOfRun(input: OriginInput): RunOrigin {
       label: TAB_LABEL.done,
       reason: `${why} 属于终态（不会再往前走）`,
       evidence: [...evidence, `${runRelDir}/run.json`, `${runRelDir}/run-error.json`],
+    };
+  }
+  // ②b 分析判定不需要改：analyzed 且没有提案，也是终态（2026-11-11 实测它曾在所有 tab 里消失）
+  if (runStatus === "analyzed" && input.hasProposal === false) {
+    return {
+      tab: "done",
+      label: TAB_LABEL.done,
+      reason: "run.json 状态 analyzed 且没有 02-proposal.json：分析判定不需要改（终态）",
+      evidence: [...evidence, `${runRelDir}/run.json`, `${runRelDir}/01-findings.json`],
     };
   }
   // ③ 待审批：队列 pending 且 level=approval —— 这类必须人点，auto 永不代劳

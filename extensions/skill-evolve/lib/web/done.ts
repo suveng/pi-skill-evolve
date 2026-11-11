@@ -4,6 +4,8 @@
  * 为什么不和「已采纳」混：采纳有自己的页（见 ./applied.ts），两边都收就等于两个 tab 各算一遍。
  * 队列记录会覆盖同一个 runId 的 run.json 版本：它有层级（auto/approval）与失败详情，比只有状态有用。
  */
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { QueueItem } from "../queue.ts";
 import type { RunStatus, RunSummary } from "../runs.ts";
 import { asNumber, asText } from "./json-read.ts";
@@ -45,11 +47,30 @@ export const DONE_STATUSES: readonly RunStatus[] = [
 
 const DONE_STATUS_SET = new Set<string>(DONE_STATUSES);
 
-export function buildDone(items: readonly QueueItem[], runs: readonly RunSummary[], evolutionDir: string): DoneItem[] {
+/**
+ * 「分析判定不需要改」的 run 落在这一页：`analyzed` 且**没有** 02-proposal.json。
+ * 它是终态（不会再生提案），以前挂在「复盘报告」页 —— 那个页 2026-11-10 删了之后，
+ * 这类 run 一度在任何 tab 里都看不到（实测 2026-11-11）。
+ */
+export const ANALYZED_NO_PROPOSAL = "analyzed";
+
+/** 默认判据：磁盘上有没有 02-proposal.json（单测可以注入） */
+function defaultHasProposal(evolutionDir: string): (runId: string) => boolean {
+  return (runId) => fs.existsSync(path.join(evolutionDir, "runs", runId, "02-proposal.json"));
+}
+
+export function buildDone(
+  items: readonly QueueItem[],
+  runs: readonly RunSummary[],
+  evolutionDir: string,
+  hasProposal: (runId: string) => boolean = defaultHasProposal(evolutionDir),
+): DoneItem[] {
   const byRun = new Map<string, DoneItem>();
   const sessions = sessionIndex(runs);
   for (const run of runs) {
-    if (!DONE_STATUS_SET.has(run.status)) continue;
+    const terminal = DONE_STATUS_SET.has(run.status);
+    const analyzedNoProposal = run.status === ANALYZED_NO_PROPOSAL && !hasProposal(run.runId);
+    if (!terminal && !analyzedNoProposal) continue;
     byRun.set(run.runId, {
       runId: run.runId,
       status: run.status,
@@ -58,7 +79,11 @@ export function buildDone(items: readonly QueueItem[], runs: readonly RunSummary
       level: asText(run.review?.action, "-"),
       skill: run.proposal?.skill ?? "",
       at: run.dispatchedAt,
-      detail: run.review?.verdict ? `评审：${run.review.verdict}` : "",
+      detail: analyzedNoProposal
+        ? "分析判定不需要改（没有 02-proposal.json，终态）"
+        : run.review?.verdict
+          ? `评审：${run.review.verdict}`
+          : "",
     });
   }
   // 队列记录覆盖同 runId：它有层级（auto/approval）与失败详情，比 run.json 只有状态有用

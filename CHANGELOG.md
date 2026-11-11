@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.25] - 2026-11-11
+
+- 修：`analyzed` 且没有 `02-proposal.json` 的 run（分析判定不需要改）原本挂「复盘报告」页，该页删掉后它在**任何 tab 里都看不到**（实测 run ce43f48b-1794363796）。现在归「已结束」，原因写「分析判定不需要改（终态）」，证据给 `run.json` / `01-findings.json`
+- `originOfRun` 新增 `hasProposal` 入参；列表聚合与详情页都按磁盘上有没有 `02-proposal.json` 判
+- 测试：724 → 726
+
 ## [0.1.24] - 2026-11-11
 
 - 修：`scripts/panel.mjs` 传给子进程的 `promptTemplate` 少了一层目录（`<runtime>/lib/web/prompts/`），子进程读不到模板就退回内置最小指令 → 改成 `<runtime>/prompts/复盘.md`（实测重启后派发不再出现「复盘模板读取失败」）

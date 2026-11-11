@@ -75,3 +75,15 @@ test("顺位与文案是唯一事实：TAB_RANK 从已采纳往待处理递增�
   assert.ok(TAB_RANK.approvals < TAB_RANK.pending);
   assert.deepEqual(Object.keys(TAB_LABEL).sort(), ["applied", "approvals", "done", "pending"]);
 });
+
+test("originOfRun：analyzed 且没有提案 → 已结束（分析判定不需要改，别在 tab 里消失）", () => {
+  const origin = originOfRun({ runId: "r1", runRelDir: "runs/r1", runStatus: "analyzed", hasProposal: false });
+  assert.equal(origin.tab, "done");
+  assert.match(origin.reason, /分析判定不需要改/);
+  assert.ok(origin.evidence.some((line) => line.endsWith("01-findings.json")));
+});
+
+test("originOfRun：analyzed 但有提案 → 仍是待处理（等评审 / 等入队）", () => {
+  const origin = originOfRun({ runId: "r2", runRelDir: "runs/r2", runStatus: "analyzed", hasProposal: true });
+  assert.equal(origin.tab, "pending");
+});
