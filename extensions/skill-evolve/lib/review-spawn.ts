@@ -42,6 +42,8 @@ export interface SpawnSupervisorOptions {
   env?: NodeJS.ProcessEnv;
   /** "inherit" / 空 → 不传参，督导按默认模型评审 */
   reviewModel?: string;
+  /** 重写机会次数：经环境变量传给督导（位置参数已用于 runDir / reviewModel，别再加第四个） */
+  maxRewrites?: number;
   spawnFn?: SupervisorSpawn;
   log?: (msg: string) => void;
   /** 同一条 run 的会话 ID：busy 遥测要带它（缺省退化到 runId，事件不能丢） */
@@ -97,6 +99,7 @@ export function spawnReviewSupervisor(options: SpawnSupervisorOptions): number |
   if (options.reviewModel && options.reviewModel !== "inherit") args.push(options.reviewModel);
   const spawnFn = options.spawnFn ?? (nodeSpawn as unknown as SupervisorSpawn);
   try {
+    if (options.maxRewrites !== undefined) (options.env ??= {})["SKILL_EVOLVE_MAX_REWRITES"] = String(options.maxRewrites);
     const child = spawnDetached(spawnFn, process.execPath, args, {
       cwd: options.cwd,
       env,

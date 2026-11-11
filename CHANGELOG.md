@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.27] - 2026-11-11
+
+- 新：**评审不通过自动重写提案，最多 3 次**（用户：「复盘不通过的时候，应该有 3 次重写这个提案的机会」）。verdict=reject/revise 时按 `03-review.json` 的 blocking 起一次重写 Agent，改完立刻重评；次数用完仍不通过才判 rejected
+- 每一版都留档：`attempts/attempt-0N/`（提案 + diff + candidate + 当轮评审），重写日志 `agent-rewrite-N.log` 在详情页「Agent 会话 · 重写 Agent」直接点开
+- 重写次数可配：`config.json` 的 `maxRewrites`（默认 3，0 = 不重写 = 旧行为），经 `SKILL_EVOLVE_MAX_REWRITES` 传给督导
+- 重写没写出新提案 / 子进程失败 → 立刻按当前结论收尾，不再空等；日志写不进磁盘也不影响评审
+- 测试：726 → 729（新增「reject → 重写一次后通过」「三次都用满后 rejected」「重写无产物立刻收尾」）
+
 ## [0.1.26] - 2026-11-11
 
 - 修：督导不再为「判定不需要改」的 run 空等 15 分钟。`analyzed` / `failed` / `rejected` / `superseded` / `abandoned` 且没有 `02-proposal.json` 时，`waitForProposal` 立刻收工，`03-review.json` 记 `reason=analyzed-no-proposal`

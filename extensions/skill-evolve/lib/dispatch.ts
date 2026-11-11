@@ -249,6 +249,7 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
         cwd: deps.cwd,
         env,
         reviewModel: deps.reviewModel?.() ?? "inherit",
+        maxRewrites: deps.config.maxRewrites,
         spawnFn: deps.supervisorSpawnFn,
         sessionId: input.sessionId, telemetry: deps.telemetry, ...(deps.alive ? { alive: deps.alive } : {}),
         autoReview: deps.config.autoReview,

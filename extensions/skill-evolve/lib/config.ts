@@ -59,6 +59,8 @@ export interface EvolutionConfig {
   maxRuntimeMs: number;
   /** 单会话派生次数上限（进程内计数）；跨会话的总量由 lib/single-flight.ts 的全局闸兜底 */
   perSessionCap: number;
+  /** 评审不通过时给提案 Agent 的重写机会（默认 3 = 最多 4 次评审） */
+  maxRewrites: number;
   /** 趋势统计的回看天数（`/skill-evolve report --week` 的指标窗口）：默认 28 天 */
   metricsWindowDays: number;
   /** 采纳前备份保留天数（`backups/<runId>/`）：默认 3 天，超期在 session_start 清掉 */
@@ -80,6 +82,7 @@ export const DEFAULT_CONFIG: Readonly<EvolutionConfig> = Object.freeze({
   idleMs: 90_000,
   maxRuntimeMs: 20 * 60_000,
   perSessionCap: 20,
+  maxRewrites: 3,
   // 28 天 = 四个整周，既够看出「这周比上周」又不至于把两个月前的旧账算进趋势（2026-11-10 搬上配置页）
   metricsWindowDays: 28,
   // 3 天（2026-11-10 用户定）：回滚窗口靠 git 兜底，备份只留最近的
@@ -98,6 +101,12 @@ export const DEFAULT_CONFIG: Readonly<EvolutionConfig> = Object.freeze({
 
 export function configFile(evolutionDir: string): string {
   return path.join(evolutionDir, "config.json");
+}
+
+/** 0 是合法值（= 不重写），负数与小数一律回落到默认 */
+function nonNegativeInt(value: unknown, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return fallback;
+  return Math.floor(value);
 }
 
 function positiveInt(value: unknown, fallback: number): number {
@@ -138,6 +147,7 @@ export function normalizeConfig(raw: unknown, log: (msg: string) => void = () =>
     idleMs: positiveInt(input.idleMs, DEFAULT_CONFIG.idleMs),
     maxRuntimeMs: positiveInt(input.maxRuntimeMs, DEFAULT_CONFIG.maxRuntimeMs),
     perSessionCap: positiveInt(input.perSessionCap, DEFAULT_CONFIG.perSessionCap),
+    maxRewrites: nonNegativeInt(input.maxRewrites, DEFAULT_CONFIG.maxRewrites),
     // 窗口太短看不出趋势（<7 天不足一周对比）、太长等于把历史全算进来：越界回落默认值而不是静默截断
     metricsWindowDays: clampInt(input.metricsWindowDays, DEFAULT_CONFIG.metricsWindowDays, 7, 365),
     // 0 天等于「刚备份就删」，365 以上等于不清理：两头都越界回落 3 天

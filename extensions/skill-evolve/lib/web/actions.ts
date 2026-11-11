@@ -317,6 +317,9 @@ export async function handlePost(
 /** 允许通过 `?file=` 指定读哪份日志：白名单，绝不让外部拼路径 */
 export const LOG_FILES = [CHILD_LOG, SUPERVISOR_LOG, "agent-review.log"] as const;
 
+/** 重写日志是动态命名的（agent-rewrite-1.log …），用模式放行，避免把 N 个文件写死进白名单 */
+const REWRITE_LOG_PATTERN = /^agent-rewrite-\d+\.log$/;
+
 export function handleLog(evolutionDir: string, response: http.ServerResponse, url: URL): void {
   const runId = (url.searchParams.get("runId") ?? "").trim();
   const runDir = resolveRunDir(evolutionDir, runId);
@@ -326,7 +329,8 @@ export function handleLog(evolutionDir: string, response: http.ServerResponse, u
   }
   // 显式指定 file 时只认白名单里的三份；没指定就沿用旧行为（child.log 优先，退回 supervisor.log）
   const wanted = (url.searchParams.get("file") ?? "").trim();
-  const named = (LOG_FILES as readonly string[]).includes(wanted) ? wanted : null;
+  const allowed = (LOG_FILES as readonly string[]).includes(wanted) || REWRITE_LOG_PATTERN.test(wanted);
+  const named = allowed ? wanted : null;
   if (named !== null) {
     const tail = readLogTail(path.join(runDir, named), LOG_TAIL_LINES);
     if (tail.length === 0) {

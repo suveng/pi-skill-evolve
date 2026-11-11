@@ -9,7 +9,8 @@ import assert from "node:assert/strict";
 import * as path from "node:path";
 import { compileRules } from "../lib/hard-rules.ts";
 import { checkCandidateFrontmatter, parseProposal, runReviewSupervisor } from "../lib/review-supervisor.ts";
-import { fakeClock, fakeReviewSpawn, hangingReviewSpawn } from "./fake-review-spawn.ts";
+import { FakeReviewChild, fakeClock, fakeReviewSpawn, hangingReviewSpawn } from "./fake-review-spawn.ts";
+import type { ReviewSpawn } from "../lib/review-run.ts";
 
 const RUN_DIR = "/repo/.pi/evolution/runs/run-1";
 const SKILL_FILE = "/repo/.pi/skills/demo/SKILL.md";
@@ -216,6 +217,7 @@ test("机械复验：diff 新增 P0 命中时一票 reject（即使评审说 pas
     writeText: fs.writeText,
     spawnFn: fakeReviewSpawn([PASS]),
     pollMs: 1,
+    maxRewrites: 0,
   });
   assert.equal(outcome.status, "rejected");
   assert.equal(outcome.record.verdict, "reject");
@@ -237,6 +239,7 @@ test("create 提案：candidate frontmatter 缺 description → reject", async (
     writeText: fs.writeText,
     spawnFn: fakeReviewSpawn([PASS]),
     pollMs: 1,
+    maxRewrites: 0,
   });
   assert.equal(outcome.status, "rejected");
   assert.match(outcome.record.detail ?? "", /frontmatter 缺 description/);
@@ -254,4 +257,96 @@ test("checkCandidateFrontmatter 三种坏法都能识别", () => {
   assert.equal(checkCandidateFrontmatter("---\ndescription: x\n---\n"), "frontmatter 缺 name");
   assert.equal(checkCandidateFrontmatter("---\nname: x\n---\n"), "frontmatter 缺 description");
   assert.equal(checkCandidateFrontmatter("---\nname: x\ndescription: y\n---\n"), null);
+});
+
+// ── 评审不通过 → 重写提案（2026-11-11 用户：「复盘不通过时应该有 3 次重写这个提案的机会」）──
+const REJECT = JSON.stringify({
+  verdict: "reject",
+  summary: "新描述没覆盖触发场景",
+  blocking: [{ point: "description 没写「全盘扫描」这个触发场景", evidence: { file: ".pi/skills/demo/SKILL.md", line: 3, quote: "description: 旧描述" } }],
+  passed: [],
+});
+
+/** 假重写子进程：每次 spawn 把提案改一版再退出（模拟 Agent 真的重写了文件） */
+function fakeRewriteSpawn(fs: ReturnType<typeof memFs>): { spawn: ReviewSpawn; calls: number[] } {
+  const calls: number[] = [];
+  let round = 0;
+  const spawn: ReviewSpawn = () => {
+    round += 1;
+    calls.push(round);
+    const child = new FakeReviewChild();
+    setTimeout(() => {
+      fs.writeText(
+        `${RUN_DIR}/02-proposal.json`,
+        JSON.stringify({ type: "improve", skill: "demo", diffFile: "02-proposal.diff", rewrite: round }),
+      );
+      child.emit("exit", 0);
+    }, 1);
+    return child;
+  };
+  return { spawn, calls };
+}
+
+test("评审 reject → 自动重写一次提案，第二版通过即 reviewed（rewrites=1，上一版留档）", async () => {
+  const fs = memFs(baseFiles());
+  const rewrite = fakeRewriteSpawn(fs);
+  const outcome = await runReviewSupervisor({
+    runDir: RUN_DIR,
+    evolutionDir: "/repo/.pi/evolution",
+    rules: RULES,
+    readText: fs.readText,
+    writeText: fs.writeText,
+    spawnFn: fakeReviewSpawn([REJECT, PASS]),
+    rewriteSpawnFn: rewrite.spawn,
+    pollMs: 1,
+    maxRewrites: 3,
+  });
+  assert.equal(outcome.status, "reviewed");
+  assert.equal(outcome.record.rewrites, 1);
+  assert.equal(rewrite.calls.length, 1);
+  // 第一版被否的提案与它的评审结论都要留档，不然只有最后一版
+  assert.ok(fs.text(`${RUN_DIR}/attempts/attempt-01/02-proposal.json`)?.includes("rationale"), "第一版提案在案");
+  assert.match(fs.text(`${RUN_DIR}/attempts/attempt-01/03-review.json`) ?? "", /reject/);
+});
+
+test("三次重写都不通过 → 用满 3 次后判 rejected（评审 4 次）", async () => {
+  const fs = memFs(baseFiles());
+  const rewrite = fakeRewriteSpawn(fs);
+  const outcome = await runReviewSupervisor({
+    runDir: RUN_DIR,
+    evolutionDir: "/repo/.pi/evolution",
+    rules: RULES,
+    readText: fs.readText,
+    writeText: fs.writeText,
+    spawnFn: fakeReviewSpawn([REJECT]),
+    rewriteSpawnFn: rewrite.spawn,
+    pollMs: 1,
+    maxRewrites: 3,
+  });
+  assert.equal(outcome.status, "rejected");
+  assert.equal(outcome.record.rewrites, 3, "正好用满 3 次，不多不少");
+  assert.equal(rewrite.calls.length, 3);
+});
+
+test("重写没写出新提案 → 立刻按当前结论收尾，不再空等", async () => {
+  const fs = memFs(baseFiles());
+  const spawn: ReviewSpawn = () => {
+    const child = new FakeReviewChild();
+    setTimeout(() => child.emit("exit", 0), 1);
+    return child;
+  };
+  const outcome = await runReviewSupervisor({
+    runDir: RUN_DIR,
+    evolutionDir: "/repo/.pi/evolution",
+    rules: RULES,
+    readText: fs.readText,
+    writeText: fs.writeText,
+    spawnFn: fakeReviewSpawn([REJECT]),
+    rewriteSpawnFn: spawn,
+    pollMs: 1,
+    maxRewrites: 3,
+    rewriteWaitMs: 30,
+  });
+  assert.equal(outcome.status, "rejected");
+  assert.equal(outcome.record.rewrites, 1, "试过一次重写、没产物就停手");
 });

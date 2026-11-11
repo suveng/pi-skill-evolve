@@ -81,6 +81,8 @@ export interface RunDetail {
   hasChildLog: boolean;
   /** 评审 Agent 的原始输出（agent-review.log）：没有 = 这轮没起过评审或旧版没落盘 */
   hasReviewLog: boolean;
+  /** 每次重写产生的日志文件名（agent-rewrite-1.log …），按次序号排好 */
+  rewriteLogs: string[];
   /** 02-proposal.diff 原文；没有这个文件为 null */
   diff: string | null;
   /** candidate 目录里的技能名（与 skill 一致才读全文） */
@@ -224,6 +226,15 @@ function isDir(dir: string): boolean {
  * 读一个 run 的详情。runId 不合法（含 `../`、绕对路径）**或目录不存在**一律返回 null ——
  * 调用方据此回 404：不读盘越界，也不返回一个全是空值的假页。
  */
+/** 列 run 目录里的文件名；读不到就返回空（详情页不能因为一个目录读失败整页 500） */
+function listRunFiles(dir: string): string[] {
+  try {
+    return fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+}
+
 export function readRunDetail(evolutionDir: string, runId: string): RunDetail | null {
   const runDir = resolveRunDir(evolutionDir, runId);
   if (!runDir || !isDir(runDir)) return null;
@@ -240,6 +251,10 @@ export function readRunDetail(evolutionDir: string, runId: string): RunDetail | 
   const stamps = [decision, verifyAt, reviewAt].filter((value): value is number => value !== null);
   const hasChildLog = exists(path.join(runDir, "child.log"));
   const hasReviewLog = exists(path.join(runDir, "agent-review.log"));
+  // 重写日志按序号数字排序：字典序会把 agent-rewrite-10.log 排到 -2 前面
+  const rewriteLogs = listRunFiles(runDir)
+    .filter((name) => /^agent-rewrite-\d+\.log$/.test(name))
+    .sort((a, b) => Number(a.replace(/\D/g, "")) - Number(b.replace(/\D/g, "")));
   // 流水线：pid 存活按 run.json 记的两个 pid，队列状态按 queue.json（不在队列 = null）
   // 开关来自 config.json —— 面板只读，读配置也只是想知道「为什么这步被跳过了」
   const config = loadConfig(evolutionDir);
@@ -277,6 +292,7 @@ export function readRunDetail(evolutionDir: string, runId: string): RunDetail | 
     pid: asNumber(record?.pid),
     hasChildLog,
     hasReviewLog,
+    rewriteLogs,
     diff: readTextFile(path.join(runDir, "02-proposal.diff")),
     ...candidate,
     ...review,

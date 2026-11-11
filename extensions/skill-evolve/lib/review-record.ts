@@ -23,6 +23,8 @@ export interface ReviewRecord {
   proposerModel: string;
   sameModel: boolean;
   attempts?: number;
+  /** 评审不通过后重写了几次提案（0 = 首发即过；3 = 用完了重写机会） */
+  rewrites?: number;
   detail?: string;
   reviewedAt: number;
   reviewedAtIso: string;

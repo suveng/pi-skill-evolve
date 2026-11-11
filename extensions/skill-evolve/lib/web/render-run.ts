@@ -31,11 +31,21 @@ function agentSection(detail: RunDetail): string {
   const review = detail.hasReviewLog
     ? `<a href="/log?runId=${rid}&amp;file=agent-review.log">agent-review.log</a> <span class="hint">（评审 Agent 的完整输出，两轮都在）</span>`
     : `<span class="off">没有 agent-review.log（这轮没起评审，或是 v0.1.20 之前的旧 run）</span>`;
+  // 重写日志：评审不通过时提案 Agent 会重写，每一轮都要能点开看（不然「重写了 3 次」只是个数
+  // 旧 fixture / 旧 run 可能没有这个字段，缺了当空数组，别让整页崩
+  const rewriteLinks = (detail.rewriteLogs ?? []).map(
+    (name) => `<a href="/log?runId=${rid}&amp;file=${encodeURIComponent(name)}">${escapeHtml(name)}</a>`,
+  );
+  const rewrite =
+    rewriteLinks.length > 0
+      ? `${rewriteLinks.join(" · ")} <span class="hint">（第 N 次重写的完整输出）</span>`
+      : `<span class="off">没有重写日志（评审一次就过，或这一版还没评到）</span>`;
   return `<section>
 <h2>Agent 会话</h2>
 <div class="kv">
 ${kv("提案 Agent", propose)}
 ${kv("评审 Agent", review)}
+${kv("重写 Agent", rewrite)}
 </div>
 <p class="hint">用户会话（这段对话本身）见上面的「会话」一行。</p>
 </section>`;

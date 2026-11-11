@@ -23,6 +23,15 @@ import { renderReviewMarkdown, stageModel, type ReviewRecord, type SupervisorSta
 import { AGENT_REVIEW_LOG, reviewWithRetry, type ReviewSpawn } from "./review-run.ts";
 import { patchRunRecordSync } from "./runs.ts";
 import { applyUnifiedDiff } from "./diff-apply.ts";
+import {
+  MAX_REWRITES,
+  PROPOSAL_JSON,
+  REWRITE_POLL_MS,
+  archiveAttempt,
+  buildRewritePrompt,
+  runRewritePass,
+  waitForNewProposal,
+} from "./rewrite.ts";
 
 export const PROPOSAL_TIMEOUT_MS = 900_000;
 const PROPOSAL_POLL_MS = 2000;
@@ -44,6 +53,14 @@ export interface ReviewSupervisorDeps {
   proposalTimeoutMs?: number;
   reviewTimeoutMs?: number;
   pollMs?: number;
+  /** 评审不通过时给提案 Agent 的重写机会（默认 3；0 = 不重写，与旧行为一致） */
+  maxRewrites?: number;
+  /** 重写子进程的 spawn（单测注入，默认真起 pi） */
+  rewriteSpawnFn?: ReviewSpawn;
+  /** 单次重写超时（毫秒） */
+  rewriteTimeoutMs?: number;
+  /** 等重写产物落盘的上限（毫秒）；默认 60s，单测可压到几十毫秒 */
+  rewriteWaitMs?: number;
 }
 
 export interface SupervisorOutcome {
@@ -206,61 +223,123 @@ export async function runReviewSupervisor(deps: ReviewSupervisorDeps): Promise<S
 
   const cwd = cwdOf(runRaw);
   const rules = deps.rules ?? loadHardRules(path.join(evolutionDir, "rules", "hard-rules.json"));
+  const maxRewrites = Math.max(0, deps.maxRewrites ?? MAX_REWRITES);
   const target = path.join(cwd, ".pi", "skills", proposal.skill, "SKILL.md");
-  const candidateFile = path.join(runDir, proposal.candidateFile ?? path.posix.join("candidate", proposal.skill, "SKILL.md"));
-  const diffFile = proposal.diffFile ?? "02-proposal.diff";
-  const diffText = read(path.join(runDir, diffFile)) ?? "";
-  // 改动前全文：优先 candidate（新建技能没有基线文件），其次工作区里当前的技能
-  const beforeText = read(candidateFile) ?? read(target) ?? "";
-  const applied = diffText.length > 0 ? applyUnifiedDiff(beforeText, diffText) : null;
-  const afterText = applied !== null && applied.ok ? applied.text : beforeText;
-  const recheck = (): string | null => {
-    if (proposal.type === "create") return checkCandidateFrontmatter(read(candidateFile) ?? "");
-    const hits = newHardRuleHits(beforeText, afterText, rules, proposal.skill);
-    return hits.length > 0 ? `新增 P0 命中 ${hits[0].ruleId}（${hits[0].skill}:${hits[0].line}）` : null;
+  /** 评一版提案：算改后全文 → 起评审子进程 → 写 03-review.*，返回结论 */
+  const judge = async (meta: ProposalMeta, rewriteNo: number) => {
+    const candidateFile = path.join(runDir, meta.candidateFile ?? path.posix.join("candidate", meta.skill, "SKILL.md"));
+    const diffFile = meta.diffFile ?? "02-proposal.diff";
+    const diffText = read(path.join(runDir, diffFile)) ?? "";
+    // 改动前全文：优先 candidate（新建技能没有基线文件），其次工作区里当前的技能
+    const beforeText = read(candidateFile) ?? read(target) ?? "";
+    const applied = diffText.length > 0 ? applyUnifiedDiff(beforeText, diffText) : null;
+    const afterText = applied !== null && applied.ok ? applied.text : beforeText;
+    const recheck = (): string | null => {
+      if (meta.type === "create") return checkCandidateFrontmatter(read(candidateFile) ?? "");
+      const hits = newHardRuleHits(beforeText, afterText, rules, meta.skill);
+      return hits.length > 0 ? `新增 P0 命中 ${hits[0].ruleId}（${hits[0].skill}:${hits[0].line}）` : null;
+    };
+
+    const prompt = buildReviewPrompt({
+      skillName: meta.skill,
+      skillText: afterText,
+      diffApplied: applied !== null && applied.ok,
+      diff: diffText,
+      hardRules: rules.compiled,
+    });
+    const outcome = await reviewWithRetry({
+      prompt,
+      cwd,
+      model: reviewerModel,
+      ...(deps.env ? { env: deps.env } : {}),
+      ...(deps.spawnFn ? { spawnFn: deps.spawnFn } : {}),
+      ...(deps.now ? { now: deps.now } : {}),
+      ...(deps.sleep ? { sleep: deps.sleep } : {}),
+      ...(deps.reviewTimeoutMs ? { timeoutMs: deps.reviewTimeoutMs } : {}),
+      ...(deps.log ? { log: deps.log } : {}),
+      recheck,
+      // 评审 Agent 说了什么必须能复查：原始输出落到 run 目录，详情页给链接直接点开
+      rawLogPath: path.join(runDir, AGENT_REVIEW_LOG),
+    });
+
+    const verdict = outcome.result.verdict;
+    // invalid = 评审输出不可用（重评也没救）；reject 是机械复验的定论，按「被否决」记，不算失败
+    const status: SupervisorStatus =
+      outcome.result.status === "invalid" ? "review_failed" : verdict === "pass" ? "reviewed" : "rejected";
+    const record: ReviewRecord = {
+      ...base,
+      status,
+      ...(verdict ? { verdict } : {}),
+      blocking: outcome.result.blocking,
+      passed: outcome.result.passed,
+      ...(outcome.result.summary ? { summary: outcome.result.summary } : {}),
+      ...(outcome.result.notes ? { notes: outcome.result.notes } : {}),
+      action: classifyChange({ diffText, proposalType: meta.type, skill: meta.skill }).level,
+      attempts: outcome.attempts,
+      rewrites: rewriteNo,
+      ...(outcome.result.detail ? { detail: outcome.result.detail } : {}),
+      ...stamp(now()),
+    };
+    write(path.join(runDir, "03-review.json"), `${JSON.stringify(record, null, 2)}\n`);
+    write(path.join(runDir, "03-review.md"), renderReviewMarkdown(record, meta.skill));
+    return { outcome, record, status, verdict };
   };
 
-  const prompt = buildReviewPrompt({
-    skillName: proposal.skill,
-    skillText: afterText,
-    diffApplied: applied !== null && applied.ok,
-    diff: diffText,
-    hardRules: rules.compiled,
-  });
-  const outcome = await reviewWithRetry({
-    prompt,
-    cwd,
-    model: reviewerModel,
-    ...(deps.env ? { env: deps.env } : {}),
-    ...(deps.spawnFn ? { spawnFn: deps.spawnFn } : {}),
-    ...(deps.now ? { now: deps.now } : {}),
-    ...(deps.sleep ? { sleep: deps.sleep } : {}),
-    ...(deps.reviewTimeoutMs ? { timeoutMs: deps.reviewTimeoutMs } : {}),
-    ...(deps.log ? { log: deps.log } : {}),
-    recheck,
-    // 评审 Agent 说了什么必须能复查：原始输出落到 run 目录，详情页给链接直接点开
-    rawLogPath: path.join(runDir, AGENT_REVIEW_LOG),
-  });
-
-  const verdict = outcome.result.verdict;
-  // invalid = 评审输出不可用（重评也没救）；reject 是机械复验的定论，按「被否决」记，不算失败
-  const status: SupervisorStatus =
-    outcome.result.status === "invalid" ? "review_failed" : verdict === "pass" ? "reviewed" : "rejected";
-  const record: ReviewRecord = {
-    ...base,
-    status,
-    ...(verdict ? { verdict } : {}),
-    blocking: outcome.result.blocking,
-    passed: outcome.result.passed,
-    ...(outcome.result.summary ? { summary: outcome.result.summary } : {}),
-    ...(outcome.result.notes ? { notes: outcome.result.notes } : {}),
-    action: classifyChange({ diffText, proposalType: proposal.type, skill: proposal.skill }).level,
-    attempts: outcome.attempts,
-    ...(outcome.result.detail ? { detail: outcome.result.detail } : {}),
-    ...stamp(now()),
-  };
-  write(path.join(runDir, "03-review.json"), `${JSON.stringify(record, null, 2)}\n`);
-  write(path.join(runDir, "03-review.md"), renderReviewMarkdown(record, proposal.skill));
+  let meta: ProposalMeta = proposal;
+  let rewriteCount = 0;
+  let result = await judge(meta, rewriteCount);
+  // 不通过（reject/revise）就按评审意见重写提案，重写完再评一次；次数用完仍不通过 = 终态否决
+  while (result.verdict !== "pass" && result.outcome.result.status !== "invalid" && rewriteCount < maxRewrites) {
+    rewriteCount += 1;
+    log(
+      `[skill-evolve] 评审未通过（${result.verdict ?? "无结论"}）：第 ${rewriteCount}/${maxRewrites} 次重写提案（${path.basename(runDir)}）`,
+    );
+    // 先留档：重写会覆盖 02-proposal.*，不留档就看不到「第一版为什么被否」
+    archiveAttempt(runDir, rewriteCount, { read, write });
+    const proposalFile = path.join(runDir, PROPOSAL_JSON);
+    const previous = read(proposalFile);
+    const rewritePrompt = buildRewritePrompt({
+      runDir,
+      skill: meta.skill,
+      attempt: rewriteCount,
+      maxRewrites,
+      blocking: result.record.blocking,
+      proposalJson: previous,
+      proposalDiff: read(path.join(runDir, meta.diffFile ?? "02-proposal.diff")),
+      candidateText: read(path.join(runDir, meta.candidateFile ?? path.posix.join("candidate", meta.skill, "SKILL.md"))),
+    });
+    const rewrote = await runRewritePass(rewritePrompt, runDir, rewriteCount, {
+      cwd,
+      ...(deps.env ? { env: deps.env } : {}),
+      // 没单独注入重写 spawn 时复用评审的 spawn：单测只给一份假 spawner 也不会去真起 pi
+      ...(deps.rewriteSpawnFn ?? deps.spawnFn ? { spawnFn: (deps.rewriteSpawnFn ?? deps.spawnFn)! } : {}),
+      ...(deps.now ? { now: deps.now } : {}),
+      ...(deps.sleep ? { sleep: deps.sleep } : {}),
+      ...(deps.rewriteTimeoutMs ? { timeoutMs: deps.rewriteTimeoutMs } : {}),
+      ...(deps.log ? { log: deps.log } : {}),
+    });
+    if (!rewrote.ok) {
+      log(`[skill-evolve] 重写失败（${rewrote.detail ?? "未知"}），按当前结论收尾（${path.basename(runDir)}）`);
+      break;
+    }
+    const nextText = await waitForNewProposal(proposalFile, previous, {
+      read,
+      ...(deps.now ? { now: deps.now } : {}),
+      ...(deps.sleep ? { sleep: deps.sleep } : {}),
+      pollMs: deps.pollMs ?? REWRITE_POLL_MS,
+      timeoutMs: deps.rewriteWaitMs ?? 60_000,
+    });
+    const next = parseProposal(nextText);
+    if (!next) {
+      log(`[skill-evolve] 第 ${rewriteCount} 次重写没写出可读的提案，按当前结论收尾（${path.basename(runDir)}）`);
+      break;
+    }
+    meta = next;
+    result = await judge(meta, rewriteCount);
+  }
+  const { record, status, verdict } = result;
+  // rewrites 记「实际尝试过几次重写」：重写失败/没产物也算试过，不能用最后一次 judge 的编号代替
+  record.rewrites = rewriteCount;
 
   if (runRaw) {
     try {
@@ -274,16 +353,28 @@ export async function runReviewSupervisor(deps: ReviewSupervisorDeps): Promise<S
         proposerModel,
         sameModel,
         // 摘要写回 run.json：列表与详情页共用一存，不用为一句结论另开文件
-        summary: outcome.result.summary ?? null,
-        passed: outcome.result.passed.length,
+        summary: result.outcome.result.summary ?? null,
+        passed: result.outcome.result.passed.length,
+        // 重写了几版：详情页要能看出「这版是第 3 次重写才过的」
+        rewrites: record.rewrites ?? 0,
       };
       write(runFile, `${JSON.stringify(runJson, null, 2)}\n`);
     } catch (error) {
       log(`[skill-evolve] 评审结论写不回 run.json：${(error as Error).message}`);
     }
   }
-  log(`[skill-evolve] 评审完成：${status}${verdict ? `/${verdict}` : ""}（${path.basename(runDir)}，${outcome.attempts} 次）`);
+  log(
+    `[skill-evolve] 评审完成：${status}${verdict ? `/${verdict}` : ""}（${path.basename(runDir)}，评审 ${result.outcome.attempts} 次、重写 ${record.rewrites ?? 0} 次）`,
+  );
   return { status, record, ms: now() - started };
+}
+
+/** 环境变量 → 重写次数；非法值返回 undefined（退回默认 3），0 是合法值 */
+function parseMaxRewrites(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim() === "") return undefined;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) return undefined;
+  return Math.floor(value);
 }
 
 async function main(): Promise<void> {
@@ -297,6 +388,10 @@ async function main(): Promise<void> {
     const outcome = await runReviewSupervisor({
       runDir,
       ...(process.argv[3] ? { reviewModel: process.argv[3] } : {}),
+      // 派发方通过环境变量传「重写机会次数」：位置参数只留给 runDir / reviewModel
+      ...(parseMaxRewrites(process.env.SKILL_EVOLVE_MAX_REWRITES) !== undefined
+        ? { maxRewrites: parseMaxRewrites(process.env.SKILL_EVOLVE_MAX_REWRITES)! }
+        : {}),
       log: (msg) => console.error(msg),
     });
     process.exitCode = outcome.status === "review_failed" ? 1 : 0;
