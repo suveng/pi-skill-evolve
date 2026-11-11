@@ -64,7 +64,7 @@ a.btn { display: inline-block; color: var(--blue); padding: 1px 8px; border: 1px
    所以只有它允许折行；列表页其它列仍保持单行，扫起来才不乱 */
 .rows td.hint-cell { white-space: normal; word-break: break-word }
 .rows tbody tr:hover { background: #1b2029 }
-.rows .status { width: 112px }
+.rows .status { width: 300px }
 /* 单条会话的 run 不进组，会话名就写在状态格里一行小字（窄屏也不隐藏） */
 .rows .sk-sess { display: block; margin-top: 2px; font-size: 12px }
 .rows .sk-sess a, .rows .sk-sess { color: var(--muted) }
@@ -90,7 +90,7 @@ a.btn { display: inline-block; color: var(--blue); padding: 1px 8px; border: 1px
 .badge.faint { color: #5d6675 }
 /* 状态链：五段等宽小字，符号颜色就是状态色；换行时整段一起走 */
 .chain-line { margin-top: 3px }
-.chain { display: inline-flex; gap: 5px; font-size: 11px; color: var(--muted); white-space: nowrap }
+.chain { display: inline-flex; flex-wrap: wrap; gap: 4px 6px; font-size: 11px; color: var(--muted); white-space: nowrap }
 .chain .c-done { color: var(--green) }
 .chain .c-running { color: var(--yellow) }
 .chain .c-waiting { color: var(--muted) }
@@ -207,7 +207,7 @@ footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--line);
 @media (max-width: 900px) {
   .wrap { padding: 0 8px 16px }
   .rows .time, .rows .delta { display: none }
-  .rows .status { width: 72px }
+  .rows .status { width: 130px }
   .rows td, .rows th { padding: 6px }
   .rows .ops { white-space: normal }
 }
