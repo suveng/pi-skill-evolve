@@ -45,7 +45,7 @@ export interface WebSummary {
 
 export interface WebState {
   pending: PendingItem[];
-  /** 待审批：只收 pending + approval 级，带按钮所需的最小事实（见 ./approvals.ts） */
+  /** 待落盘：所有 status=pending 的队列条目（不分 level），带按钮所需的最小事实（见 ./approvals.ts） */
   approvals: ApprovalItem[];
   /** 已采纳：只收队列 applied，且**不再**进 done（两个 tab 不许混） */
   applied: AppliedItem[];
@@ -67,7 +67,7 @@ export function collectWebState(input: { evolutionDir: string } & WebStateDeps):
   const items = readQueue(evolutionDir);
   const runs = listRuns(evolutionDir, SCAN_LIMIT);
   const panel = collectPanelState({ evolutionDir });
-  // 每个 run 只允许出现在一个 tab：先按「已采纳 > 已结束 > 待审批 > 待处理」顺位算归属，
+  // 每个 run 只允许出现在一个 tab：先按「已采纳 > 已结束 > 待落盘 > 待处理」顺位算归属，
   // 再把低顺位里的重复项剔掉（判据唯一事实在 ./tab-origin.ts，别在这里另写一套）
   const originInputs = new Map<string, { queue?: (typeof items)[number]; runStatus?: string; hasProposal: boolean }>();
   const hasProposal = (runId: string): boolean =>

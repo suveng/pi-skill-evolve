@@ -83,13 +83,18 @@ test("approval 级 pending 只进待审批，不再在待处理里重复出现�
   assert.equal(state.summary.pendingApprovals, 1);
 });
 
-test("pending：auto 级 pending 不算待批（不需要人），也不进待处理列表", () => {
+test("approvals：auto 级 pending 在自动采纳关着时也算待落盘（既要看得见也要点得到）", () => {
   const evolutionDir = workspace();
   writeRun(evolutionDir, "r2", { status: "reviewed" });
   writeQueue(evolutionDir, [item("r2", { level: "auto" })]);
   const state = collectWebState({ evolutionDir });
-  assert.deepEqual(state.pending, []);
-  assert.equal(state.summary.pendingApprovals, 0);
+  assert.deepEqual(state.pending, [], "待处理页不再收它");
+  assert.deepEqual(
+    state.approvals.map((row) => row.runId),
+    ["r2"],
+    "2026-11-11 前它只在顶部黄字里出现，列表里点不到",
+  );
+  assert.equal(state.summary.pendingApprovals, 1);
 });
 
 test("pending：stale 的 run 单列一类，带原因与日志末行", () => {
@@ -288,7 +293,7 @@ test("pending：pid 已死且没超时 → 也要列出来（归卡死，但说�
   assert.equal(state.summary.stale, 1);
 });
 
-test("approvals：只收 pending + approval 级，auto 级与已处理的行都不出现", () => {
+test("approvals：收所有 pending（auto + approval），已处理的行不出现", () => {
   const evolutionDir = workspace();
   writeQueue(evolutionDir, [
     item("run-b", { level: "approval", createdAt: NOW + 2 }),
@@ -300,8 +305,8 @@ test("approvals：只收 pending + approval 级，auto 级与已处理的行都�
   const state = collectWebState({ evolutionDir });
   assert.deepEqual(
     state.approvals.map((row) => row.runId),
-    ["run-a", "run-b"],
-    "只留 approval 且 pending，按 createdAt 升序（先来的先批）",
+    ["run-a", "run-b", "run-auto"],
+    "pending 全留、按 createdAt 升序（先来的先批）；applied / rejected 不进这一页",
   );
 });
 

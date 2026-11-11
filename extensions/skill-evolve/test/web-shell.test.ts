@@ -18,11 +18,11 @@ function state(): WebState {
   };
 }
 
-test("六个 tab：待处理 / 待审批 / 已采纳 / 已结束 / 技能管理 / 设置（复盘报告已下线）", () => {
+test("六个 tab：待处理 / 待落盘 / 已采纳 / 已结束 / 技能管理 / 设置（复盘报告已下线）", () => {
   assert.deepEqual([...TAB_ORDER], ["pending", "approvals", "applied", "done", "skills", "settings"]);
   assert.deepEqual(
     TAB_ORDER.map((item) => VIEW_LABEL[item]),
-    ["待处理", "待审批", "已采纳", "已结束", "技能管理", "设置"],
+    ["待处理", "待落盘", "已采纳", "已结束", "技能管理", "设置"],
   );
   assert.equal(tabs("applied").split("\n").length, 6, "不能有第七个 tab 或漏掉一个");
 });

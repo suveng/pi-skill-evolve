@@ -53,8 +53,8 @@ export const EMPTY: Record<WebView, { text: string; next: string }> = {
     next: "下一批提案来自真实会话：确认 <code>/skill-evolve telemetry on</code> 与 <code>/skill-evolve dispatch on</code>。",
   },
   approvals: {
-    text: "没有待批：auto 级不需要人批，approval 级的会出现在这里。",
-    next: "想让提案先来这儿：<code>/skill-evolve level approval</code>。",
+    text: "没有待落盘：队列里没有 status=pending 的提案。",
+    next: "提案评审通过后会先入队再来这儿；自动采纳开着时 auto 级会自己跑掉。",
   },
   applied: {
     text: "还没有已采纳的提案：采纳过的会连 diff 一起留在这里。",
@@ -66,7 +66,7 @@ export const EMPTY: Record<WebView, { text: string; next: string }> = {
   },
 };
 
-/** 页脚按视图分：只有待审批页能点，其它页要把「去哪批」写清楚 */
+/** 页脚按视图分：只有待落盘页能点，其它页要把「去哪批」写清楚 */
 function footer(view: WebView, canWrite: boolean): string {
   const api = `机器可读副本：<a href="/api/state">/api/state</a>。`;
   if (view === "approvals") {

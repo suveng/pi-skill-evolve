@@ -1,8 +1,12 @@
 /**
- * 「待审批」视图的数据：只收 `status === "pending" && level === "approval"` 的队列条目。
+ * 「待落盘」视图的数据：收所有 `status === "pending"` 的队列条目，不分 level。
+ *
+ * 为什么不按 level 过滤（2026-11-11 用户实测踩到）：`autoApply=false` 时 auto 级提案永远没人执行，
+ * 但界面上「待审批」写 0、列表里也看不到它们 —— 只剩顶部一行「N 条 auto 提案待人工」的黄字，
+ * 人点不进去、批不了。层级只影响「要不要人点」，不影响「能不能在面板上看见并点」。
  *
  * 为什么不复用 pending 视图的条目：待处理页混了正在跑 / 卡死 / 待入队，那一页是「现在发生了什么」；
- * 待审批页要能直接点按钮，所以每条必须自带批与不批所需的最小事实 ——
+ * 待落盘页要能直接点按钮，所以每条必须自带批与不批所需的最小事实 ——
  * 改了哪个文件（targets）、改了多少行（proposal）、评审怎么说（verdict + blocking 条数）。
  *
  * 纪律与 data.ts 相同：只读、坏数据当空、绝不因为一条烂 run.json 让整页 500。
@@ -15,8 +19,8 @@ import { asNumber, asText, readJson } from "./json-read.ts";
 import { readRunSession, type SessionRef } from "./run-session.ts";
 
 /**
- * 待审批页对应的 run 状态（导出给覆盖性测试）：条目靠队列条件选（pending + approval 级），
- * 能进队列就说明评审已过，所以这里只能是 reviewed。
+ * 待落盘页对应的 run 状态（导出给覆盖性测试）：条目靠队列条件选（status=pending），
+ * 能进队列就说明提案与评审都已写过，所以这里只能是 reviewed。
  */
 export const APPROVALS_RUN_STATUSES: readonly RunStatus[] = ["reviewed"];
 
@@ -46,10 +50,10 @@ function readReview(runDir: string): ApprovalItem["review"] {
   };
 }
 
-/** 待批条目：只有 approval 级要人看；auto 级由 session_start / settle 自己跑掉 */
+/** 待落盘条目：auto 级在自动采纳开着时会被 session_start / settle 跑掉，关着时同样等人点 */
 export function buildApprovals(evolutionDir: string, items: readonly QueueItem[]): ApprovalItem[] {
   return items
-    .filter((item) => item.status === "pending" && item.level === "approval")
+    .filter((item) => item.status === "pending")
     .sort((a, b) => a.createdAt - b.createdAt)
     .map((item) => {
       const runDir = path.join(evolutionDir, "runs", item.runId);

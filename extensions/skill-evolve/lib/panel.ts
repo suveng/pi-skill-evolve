@@ -97,7 +97,8 @@ export function collectPanelState(input: {
     staleCount: runs.filter(
       (run) => run.status === "stale" || classifyStale(run, now, staleDeps).stale || childGone(run, staleDeps),
     ).length,
-    pendingApprovals: queue.filter((item) => item.status === "pending" && item.level === "approval").length,
+    // 所有 pending 都算「待落盘」：auto 级在自动采纳关着时也卡在等人点（原口径只数 approval，界面就写成 0）
+    pendingApprovals: queue.filter((item) => item.status === "pending").length,
     lastAppliedAt: lastApplied?.at ?? null,
     rollbackRate: applied.length + rolledBack > 0 ? rolledBack / (applied.length + rolledBack) : 0,
     appliedSamples: applied.length + rolledBack,

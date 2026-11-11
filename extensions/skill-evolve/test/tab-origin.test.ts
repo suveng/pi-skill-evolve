@@ -44,14 +44,14 @@ test("已结束：队列终态与 run.json 终态都归已结束，reason 说清
   assert.match(fromRun.reason, /run\.json 状态 review_failed/);
 });
 
-test("待审批：只有 pending + level=approval 才进；auto 级仍是待处理", () => {
+test("待落盘：pending 就进，不分 level（auto 级在自动采纳关着时同样等人点）", () => {
   const approval = originOfRun({ runId: "run-1", runRelDir: REL, queue: queueItem({ level: "approval" }), runStatus: "reviewed" });
   assert.equal(approval.tab, "approvals");
   assert.match(approval.reason, /level=approval/);
 
   const auto = originOfRun({ runId: "run-1", runRelDir: REL, queue: queueItem({ level: "auto" }), runStatus: "reviewed" });
-  assert.equal(auto.tab, "pending");
-  assert.match(auto.reason, /level=auto/);
+  assert.equal(auto.tab, "approvals", "原来落待处理 → 面板上看不见也点不了");
+  assert.match(auto.reason, /自动采纳关着/);
 });
 
 test("优先级：同时命中已采纳与已结束、或待审批与已结束时，一次只归一个 tab", () => {

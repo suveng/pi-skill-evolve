@@ -286,7 +286,7 @@ export function createApplyTools(deps: ApplyToolsDeps): ApplyTools {
   };
 
   const reject: ApplyTools["reject"] = async (runId) => {
-    if (!runId) return "用法：/skill-evolve approve <runId>（拒绝入口在 Web 面板的待审批页）";
+    if (!runId) return "用法：/skill-evolve approve <runId>（拒绝入口在 Web 面板的待落盘页）";
     const item = findItem(readQueue(deps.evolutionDir), runId);
     if (!item) return `队列里没有 ${runId}：先 /skill-evolve queue 看有哪些，或等评审通过后自动入队`;
     const outcome = await rejectRun(item, queueDeps);
@@ -311,7 +311,7 @@ export function createApplyTools(deps: ApplyToolsDeps): ApplyTools {
         if (status === "pending") lines.push(`    targets：${item.targets.join("、")}`);
       }
     }
-    lines.push("auto 级在 session_start / settle 自动执行；approval 用 /skill-evolve approve <runId> 或 Web 面板待审批页");
+    lines.push("auto 级在 session_start / settle 自动执行；approval 用 /skill-evolve approve <runId> 或 Web 面板待落盘页");
     return lines.join("\n");
   };
 

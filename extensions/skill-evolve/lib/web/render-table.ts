@@ -30,8 +30,11 @@ function rowHtml(row: ListRow, standalone: boolean, now: number): string {
     row.delta === null ? `<span class="off">—</span>` : `+${row.delta.added} / -${row.delta.removed}`;
   const at = row.at === null ? "" : ` title="${escapeHtml(formatIso(row.at))}"`;
   const badge = `<span class="badge ${row.badge.tone}" title="${escapeHtml(row.badge.title)}">${escapeHtml(row.badge.text)}</span>`;
+  // 状态格里三行：徽章（现在在哪一步）→ 状态链（五段走到哪）→ 下一步（该干什么）
+  const chain = row.chain === undefined ? "" : `<div class="chain-line">${row.chain}</div>`;
+  const next = row.next === undefined ? "" : `<div class="next-line">${escapeHtml(row.next)}</div>`;
   return `<tr>
-<td class="status">${badge}${standalone ? sessionLine(row.session) : ""}</td>
+<td class="status">${badge}${chain}${next}${standalone ? sessionLine(row.session) : ""}</td>
 <td class="time"${at}>${time}</td>
 <td class="skill">${skill}</td>
 <td class="delta">${delta}</td>

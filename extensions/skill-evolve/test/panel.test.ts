@@ -50,7 +50,7 @@ test("statusLine：样本够且超 5% 才告警（含建议关 auto）", () => {
   assert.equal(statusLine({ ...state, rollbackRate: 0.05 }), null, "正好 5% 不算「超」");
 });
 
-test("collectPanelState：进行中的 run 算「复盘」，待批只数 approval 级 pending", () => {
+test("collectPanelState：进行中的 run 算「复盘」，待落盘数所有 pending（不分 level）", () => {
   const dir = tmpDir();
   writeRun(dir, "r1", "dispatched", NOW, { pid: 1 });
   writeRun(dir, "r2", "proposed", NOW, { supervisorPid: 1 });
@@ -62,7 +62,8 @@ test("collectPanelState：进行中的 run 算「复盘」，待批只数 approv
   ]);
   const state = collectPanelState({ evolutionDir: dir, now: NOW, alive: (pid) => pid === 1 });
   assert.equal(state.reviewing, 2, "dispatched 宽限期内 + 督导活着的 proposed 算；结论已出且进程不在的不算");
-  assert.equal(state.pendingApprovals, 1, "auto 条不等审批");
+  // 2026-11-11 改口径：autoApply 关着时 auto 级同样卡在等人点，所以都算待落盘
+  assert.equal(state.pendingApprovals, 2, "pending 全算，不分 level");
 });
 
 test("collectPanelState：上次采纳取 04-decision.json 的 at，采纳 / 回滚率按队列算", () => {

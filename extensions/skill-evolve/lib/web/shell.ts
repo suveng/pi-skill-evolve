@@ -17,7 +17,7 @@ export type TabView = (typeof TAB_ORDER)[number];
 
 export const VIEW_LABEL: Record<TabView, string> = {
   pending: "待处理",
-  approvals: "待审批",
+  approvals: "待落盘",
   applied: "已采纳",
   done: "已结束",
   skills: "技能管理",

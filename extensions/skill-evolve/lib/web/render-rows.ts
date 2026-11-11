@@ -1,5 +1,5 @@
 /**
- * 列表行的渲染：五种视图（待处理 / 待审批 / 已采纳 / 已处理 / 复盘报告）先各自映射成同一份 `ListRow`，
+ * 列表行的渲染：五种视图（待处理 / 待落盘 / 已采纳 / 已结束）先各自映射成同一份 `ListRow`，
  * 再由这里的表格与分组渲染成 HTML。
  *
  * 为什么分两步：五个视图的数据字段不同（提议数在 applied、verdict 在 approvals、findings 在 reports），
@@ -13,6 +13,7 @@
  * 2. **操作是小号链接，不是每行两个大按钮**：一行一条 run，按钮比信息显眼就本末倒置了。
  * 3. **同一会话的多条 run 收进一个 `<details>`**：9 条 run 逐行重复「重跑 / 日志」正是原来列表被压没的原因。
  */
+import { chainHtml, chainOf, nextStepText } from "./chain.ts";
 import type { AppliedItem, ApprovalItem, DoneItem, PendingItem, WebView } from "./data.ts";
 import type { SessionRef } from "./run-session.ts";
 import { escapeHtml } from "./text.ts";
@@ -43,7 +44,26 @@ export interface ListRow {
   ops: string;
   /** 要不要人动手：组标题的「N 条需要处理」靠它算 */
   needsAction: boolean;
+  /** 五段状态链（已转义的 HTML）：派发 ✓ 分析 ✓ 提案 ✓ 评审 · 采纳 · */
+  chain?: string;
+  /** 这一行「下一步该做什么」的一句话（不解释原因，原因在详情页） */
+  next?: string;
 }
+
+/** 由 run 状态拼好的状态链 + 下一步文案：四个视图共用，避免各写一份映射 */
+function chainBits(status: string | undefined, queuedPending = false): Pick<ListRow, "chain" | "next"> {
+  const chain = chainOf({ status, queuedPending });
+  return { chain: chainHtml(chain), next: nextStepText({ status, queuedPending }) };
+}
+
+/** 待处理条目 → run 状态：待处理页拿不到 run.json 状态时按 kind 反推（kind 本身就是状态派生的） */
+const PENDING_STATUS: Record<PendingItem["kind"], string> = {
+  running: "dispatched",
+  stale: "stale",
+  "to-review": "proposed",
+  reviewed: "reviewed",
+  approval: "reviewed",
+};
 
 /** 详情链接：文字是 runId 末 8 位，`title` 是完整 runId（真实数据前 8 位全同，只能靠尾巴区分） */
 function detailLink(runId: string): string {
@@ -106,7 +126,7 @@ function approvalForm(action: "approve" | "reject", item: ApprovalItem, csrf: st
 export function pendingRows(items: readonly PendingItem[], ctx: RowContext): ListRow[] {
   const badge: Record<PendingItem["kind"], { text: string; tone: BadgeTone }> = {
     running: { text: "复盘中", tone: "yellow" },
-    approval: { text: "待审批", tone: "blue" },
+    approval: { text: "待落盘", tone: "blue" },
     stale: { text: "卡死", tone: "red" },
     "to-review": { text: "待评审", tone: "gray" },
     reviewed: { text: "待入队", tone: "gray" },
@@ -120,6 +140,7 @@ export function pendingRows(items: readonly PendingItem[], ctx: RowContext): Lis
     session: item.session,
     ops: activeOps(item.runId, ctx, item.kind === "stale"),
     needsAction: item.kind === "stale" || item.kind === "approval",
+    ...chainBits(PENDING_STATUS[item.kind]),
   }));
 }
 
@@ -149,6 +170,7 @@ export function doneRows(items: readonly DoneItem[]): ListRow[] {
     session: item.session,
     ops: archiveOps(item.runId),
     needsAction: false,
+    ...chainBits(item.status),
   }));
 }
 
@@ -170,23 +192,24 @@ export function appliedRows(items: readonly AppliedItem[]): ListRow[] {
     session: item.session,
     ops: archiveOps(item.runId),
     needsAction: false,
+    ...chainBits("applied"),
   }));
 }
 
-/** 待审批：每条都要人动手，所以整页 `needsAction` 全是 true */
+/** 待落盘：每条都要人动手，所以整页 `needsAction` 全是 true */
 export function approvalRows(items: readonly ApprovalItem[], ctx: RowContext): ListRow[] {
   return items.map((item) => {
     const ops = ctx.writable
       ? `${approvalForm("approve", item, ctx.csrf)} · ${approvalForm("reject", item, ctx.csrf)} · ${detailLink(item.runId)}`
       : detailLink(item.runId);
     const facts = [
-      `${item.level} 级（必须人批）`,
+      item.level === "auto" ? "auto 级（自动采纳关着，要你点）" : `${item.level} 级（必须人批）`,
       `目标：${item.targets.join("、") || "（未写 targets）"}`,
       item.review ? `评审：verdict=${item.review.verdict ?? "（未写）"} · blocking ${item.review.blocking} 条` : "评审：读不到 03-review.json",
     ].join(" · ");
     return {
       runId: item.runId,
-      badge: { text: "待审批", tone: "blue", title: facts },
+      badge: { text: "待落盘", tone: "blue", title: facts },
       at: item.createdAt,
       skill: item.skill,
       delta: item.proposal
@@ -195,6 +218,7 @@ export function approvalRows(items: readonly ApprovalItem[], ctx: RowContext): L
       session: item.session,
       ops,
       needsAction: true,
+      ...chainBits("reviewed", true),
     };
   });
 }

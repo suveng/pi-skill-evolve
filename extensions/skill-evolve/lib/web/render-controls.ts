@@ -116,7 +116,7 @@ function rangeSelect(current: string): string {
 /**
  * 筛选表单：只留「时间」一个条件。
  *   技能：每个列表页的行里已经有技能列，技能页可以按技能点进来，再摆一个模糊搜索框没人知道该填什么；
- *   状态：顶部 tab 本身就是按状态分的（待处理 / 待审批 / 已采纳 / 已处理 / 复盘报告），重复选毫无意义。
+ *   状态：顶部 tab 本身就是按状态分的（待处理 / 待落盘 / 已采纳 / 已结束），重复选毫无意义。
  * 两个参数（skill / status）仍由 `parseListQuery` 支持，旧链接与代码内部跳转不会断，只是不再出输入框。
  */
 export function renderFilterForm(view: WebView, filter: ListFilter, extras: ListExtras): string {

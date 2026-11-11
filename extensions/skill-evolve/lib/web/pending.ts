@@ -152,7 +152,7 @@ export function buildPending(
         "层级：approval（必须人批，auto 不会替你执行）",
         `目标：${item.targets.join("、") || "（未写 targets）"}`,
         item.detail ? `备注：${item.detail}` : "",
-        `操作：去「待审批」页（?view=approvals）直接点批准 / 拒绝，也可以在这里回 TUI 敲 /skill-evolve approve ${item.runId}`,
+        `操作：去「待落盘」页（?view=approvals）直接点批准 / 拒绝，也可以在这里回 TUI 敲 /skill-evolve approve ${item.runId}`,
       ]
         .filter((line) => line.length > 0)
         .join("\n"),

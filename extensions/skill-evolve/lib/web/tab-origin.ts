@@ -25,7 +25,7 @@ export const TAB_RANK: Record<RunTab, number> = { applied: 0, done: 1, approvals
 export const TAB_LABEL: Record<RunTab, string> = {
   applied: "已采纳",
   done: "已结束",
-  approvals: "待审批",
+  approvals: "待落盘",
   pending: "待处理",
 };
 
@@ -98,12 +98,17 @@ export function originOfRun(input: OriginInput): RunOrigin {
       evidence: [...evidence, `${runRelDir}/run.json`, `${runRelDir}/01-findings.json`],
     };
   }
-  // ③ 待审批：队列 pending 且 level=approval —— 这类必须人点，auto 永不代劳
-  if (queue?.status === "pending" && queue.level === "approval") {
+  // ③ 待落盘：队列 pending 就归这里，不分 level —— auto 级在「自动采纳」关着时同样卡在等人点。
+  //    原来只收 level=approval，结果 auto 提案只出现在顶部一行黄字里，列表里点不到（2026-11-11 用户实测）。
+  if (queue?.status === "pending") {
+    const why =
+      queue.level === "auto"
+        ? "队列 status=pending 且 level=auto（自动采纳关着，要人点批准）"
+        : "队列 status=pending 且 level=approval（等待人工批准）";
     return {
       tab: "approvals",
       label: TAB_LABEL.approvals,
-      reason: "队列 status=pending 且 level=approval（等待人工批准）",
+      reason: why,
       evidence: [...evidence, `${runRelDir}/02-proposal.json`, `${runRelDir}/03-review.json`],
     };
   }
@@ -111,10 +116,7 @@ export function originOfRun(input: OriginInput): RunOrigin {
   return {
     tab: "pending",
     label: TAB_LABEL.pending,
-    reason:
-      queue?.status === "pending"
-        ? "队列 status=pending 且 level=auto（不需要人点，等 settle 自动执行）"
-        : "既不在采纳队列的终态里，也没有等待人工批准的记录（在跑 / 待评审 / 待入队）",
+    reason: "既不在采纳队列的终态里，也不在等落盘的 pending 里（在跑 / 待评审 / 待入队）",
     evidence: [...evidence, `${runRelDir}/run.json`, `${runRelDir}/03-review.json`],
   };
 }

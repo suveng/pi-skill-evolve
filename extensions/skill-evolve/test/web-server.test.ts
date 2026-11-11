@@ -55,13 +55,13 @@ test("GET /：真监听 127.0.0.1，返回四个 tab 与队列里的待批条目
     assert.match(response.headers.get("content-type") ?? "", /text\/html/);
     const html = await response.text();
     assert.match(html, /待处理/);
-    assert.match(html, /待审批/);
+    assert.match(html, /待落盘/);
     assert.match(html, /已结束/);
     assert.equal(html.includes("复盘报告"), false, "复盘报告 tab 已下线");
-    // 待批条目只出现在待审批页：待处理页不再重复列同一条（2026-11-10 去重）
+    // 待落盘条目只出现在待落盘页：待处理页不再重复列同一条（2026-11-10 去重）
     assert.equal(html.includes("run-web"), false, "待处理页不许再列待批条目");
     const approvals = await (await fetch(`${panel.url}/?view=approvals`)).text();
-    assert.match(approvals, /<span class="badge blue"[^>]*>待审批<\/span>/);
+    assert.match(approvals, /<span class="badge blue"[^>]*>待落盘<\/span>/);
     assert.match(approvals, /<td class="skill"><code>demo<\/code><\/td>/);
     assert.match(approvals, /<a class="rid" href="\/\?view=run&amp;runId=run-web"[^>]*>详情<\/a>/);
   } finally {
@@ -91,7 +91,7 @@ test("GET /api/state：合法 JSON 且带五个顶层字段", async () => {
     assert.match(response.headers.get("content-type") ?? "", /application\/json/);
     const state = (await response.json()) as WebState;
     assert.deepEqual(Object.keys(state).sort(), ["applied", "approvals", "done", "pending", "summary"]);
-    assert.equal(state.pending.length, 0, "待批条目只在待审批页出现一次");
+    assert.equal(state.pending.length, 0, "待落盘条目只在待落盘页出现一次");
     assert.equal(state.approvals[0]?.runId, "run-web");
     assert.equal(state.summary.pendingApprovals, 1);
   } finally {
@@ -192,7 +192,7 @@ test("GET /?view=approvals：列表带批准/拒绝表单与 csrf hidden（注�
   const panel = await open(workspace(), 0, { onApprove: approve.fn, onReject: reject.fn });
   try {
     const html = await (await fetch(`${panel.url}/?view=approvals`)).text();
-    assert.match(html, /<title>技能进化 · 待审批<\/title>/);
+    assert.match(html, /<title>技能进化 · 待落盘<\/title>/);
     assert.match(html, /action="\/approve"/);
     assert.match(html, /action="\/reject"/);
     assert.match(html, new RegExp(`name="csrf" value="${panel.csrf}"`));

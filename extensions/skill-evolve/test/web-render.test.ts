@@ -58,12 +58,12 @@ test("四个视图：标题、active 标签与列表内容各就各位", () => {
   assert.match(pending, /<title>技能进化 · 待处理<\/title>/);
   assert.match(pending, /<a href="\/\?view=pending" class="active">待处理<span class="cnt">1<\/span><\/a>/);
   // 列表里不再有「[待批] run-x · demo」这种行头：状态是徽章、runId 只在操作列
-  assert.match(pending, /<span class="badge blue" title="详情">待审批<\/span>/);
+  assert.match(pending, /<span class="badge blue" title="详情">待落盘<\/span>/);
   assert.match(pending, /<td class="skill"><code>demo<\/code><\/td>/);
 
   const approvals = renderPage(withApproval(), "approvals");
-  assert.match(approvals, /<title>技能进化 · 待审批<\/title>/);
-  assert.match(approvals, /<a href="\/\?view=approvals" class="active">待审批<span class="cnt">1<\/span><\/a>/);
+  assert.match(approvals, /<title>技能进化 · 待落盘<\/title>/);
+  assert.match(approvals, /<a href="\/\?view=approvals" class="active">待落盘<span class="cnt">1<\/span><\/a>/);
   assert.equal(approvals.includes("run-x"), false, "待审批页只收 approvals，不串待处理条目");
 
   const done = renderPage(state, "done");
@@ -72,7 +72,7 @@ test("四个视图：标题、active 标签与列表内容各就各位", () => {
   assert.equal(done.includes("run-x"), false, "别的视图不能串内容");
 });
 
-test("六个 tab：顺序是 待处理 / 待审批 / 已采纳 / 已结束 / 技能管理 / 设置（复盘报告已下线）", () => {
+test("六个 tab：顺序是 待处理 / 待落盘 / 已采纳 / 已结束 / 技能管理 / 设置（复盘报告已下线）", () => {
   const html = renderPage(emptyState(), "pending");
   // 只扫 nav：状态栏与页脚里也有 /?view=approvals 链接，整页扫会把它们算进来
   const nav = html.slice(html.indexOf('<nav class="tabs">'), html.indexOf("</nav>"));
@@ -84,7 +84,7 @@ test("六个 tab：顺序是 待处理 / 待审批 / 已采纳 / 已结束 / 技
 test("空态：每个列表视图各有一句人话", () => {
   for (const [view, text] of [
     ["pending", "暂无待处理：所有复盘都已完成，也没有待人批的改动。"],
-    ["approvals", "没有待批：auto 级不需要人批，approval 级的会出现在这里。"],
+    ["approvals", "没有待落盘：队列里没有 status=pending 的提案。"],
     ["applied", "还没有已采纳的提案：采纳过的会连 diff 一起留在这里。"],
     ["done", "暂无已结束记录：还没有回滚、失败或被否决的提案。"],
   ] as const) {
@@ -146,9 +146,9 @@ test("待处理页：运行中的条目有自己的徽章，不是只给个数�
   assert.match(html, /<span class="badge yellow" title="阶段：复盘产出中">复盘中<\/span>/);
 });
 
-test("待审批页：条目上是 targets / 提案增删行 / verdict 与 blocking 条数", () => {
+test("待落盘页：条目上是 targets / 提案增删行 / verdict 与 blocking 条数", () => {
   const html = renderPage(withApproval(), "approvals");
-  assert.match(html, /<span class="badge blue" title="approval 级（必须人批） · 目标：\.pi\/skills\/demo\/SKILL\.md · 评审：verdict=pass · blocking 0 条">待审批<\/span>/);
+  assert.match(html, /<span class="badge blue" title="approval 级（必须人批） · 目标：\.pi\/skills\/demo\/SKILL\.md · 评审：verdict=pass · blocking 0 条">待落盘<\/span>/);
   assert.match(html, /<td class="delta">\+3 \/ -1<\/td>/);
   assert.match(html, /<a class="rid" href="\/\?view=run&amp;runId=run-a" title="run-a">详情<\/a>/);
 });

@@ -88,6 +88,15 @@ a.btn { display: inline-block; color: var(--blue); padding: 1px 8px; border: 1px
 .badge.yellow { color: var(--yellow) }
 .badge.darkred { color: #8f2f3d }
 .badge.faint { color: #5d6675 }
+/* 状态链：五段等宽小字，符号颜色就是状态色；换行时整段一起走 */
+.chain-line { margin-top: 3px }
+.chain { display: inline-flex; gap: 5px; font-size: 11px; color: var(--muted); white-space: nowrap }
+.chain .c-done { color: var(--green) }
+.chain .c-running { color: var(--yellow) }
+.chain .c-waiting { color: var(--muted) }
+.chain .c-dead { color: var(--red); font-weight: 600 }
+.chain .c-skipped { color: #5d6675 }
+.next-line { margin-top: 2px; font-size: 11px; color: var(--muted) }
 .empty { color: var(--muted); padding: 24px 0; text-align: center }
 .empty code { color: #c8d3e6 }
 .next { color: var(--muted); text-align: center; font-size: 12px; margin: 0 0 24px }

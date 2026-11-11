@@ -129,7 +129,7 @@ test("提案列：有增删写「+3 / -1」，没有就写占位符（不是空�
   assert.match(renderPage(withPending([pending("run-p", T_LATE)]), "pending", { now: NOW }), /<td class="delta"><span class="off">—<\/span><\/td>/);
 });
 
-test("徽章：七种状态各一色（待入队灰 / 待审批蓝 / 复盘中黄 / 已采纳绿 / 卡死红 / 已拒绝暗红 / 已回滚淡）", () => {
+test("徽章：七种状态各一色（待入队灰 / 待落盘蓝 / 复盘中黄 / 已采纳绿 / 卡死红 / 已拒绝暗红 / 已回滚淡）", () => {
   const pendingCase = (kind: PendingItem["kind"], detail: string): string =>
     renderPage(withPending([pending("r1", T_LATE, { kind, detail })]), "pending", { now: NOW });
   const doneCase = (status: string): string => {
@@ -138,7 +138,7 @@ test("徽章：七种状态各一色（待入队灰 / 待审批蓝 / 复盘中�
     return renderPage(state, "done", { now: NOW });
   };
   assert.match(pendingCase("reviewed", "详情"), /<span class="badge gray" title="详情">待入队<\/span>/);
-  assert.match(pendingCase("approval", "详情"), /<span class="badge blue" title="详情">待审批<\/span>/);
+  assert.match(pendingCase("approval", "详情"), /<span class="badge blue" title="详情">待落盘<\/span>/);
   assert.match(pendingCase("running", "阶段：复盘产出中"), /<span class="badge yellow" title="阶段：复盘产出中">复盘中<\/span>/);
   assert.match(pendingCase("stale", "跑了 10 小时"), /<span class="badge red" title="跑了 10 小时">卡死<\/span>/);
   assert.match(doneCase("applied"), /<span class="badge green" title="">已采纳<\/span>/);
@@ -260,4 +260,28 @@ test("窄屏靠 CSS 让位：≤900px 隐藏时间/提案列，宽屏才给左�
   const html = renderPage(emptyState(), "pending", { now: NOW });
   assert.match(html, /<meta name="viewport" content="width=device-width, initial-scale=1">/);
   assert.match(html, /max-width: 980px/);
+});
+
+test("状态链：每行状态格里有五段链与「下一步」，不点进详情也能看出卡在哪", () => {
+  const html = renderPage(withPending([pending("run-1", T_LATE, { kind: "stale" })]), "pending", { now: NOW });
+  assert.match(html, /<div class="chain-line"><span class="chain">/);
+  assert.match(html, /<span class="c-dead" title="分析">分析✗<\/span>/, "卡死这一档必须是死在某一步，不是全灰");
+  assert.match(html, /<div class="next-line">重跑或清理<\/div>/);
+
+  const approvalState = emptyState();
+  approvalState.approvals.push({
+    runId: "run-a",
+    session: NO_SESSION,
+    skill: "demo",
+    level: "approval",
+    targets: [".pi/skills/demo/SKILL.md"],
+    createdAt: new Date(2026, 10, 8, 12).getTime(),
+    proposal: { type: "improve", added: 3, removed: 1 },
+    review: { verdict: "pass", blocking: 0 },
+    detail: "",
+  });
+  const approvals = renderPage(approvalState, "approvals");
+  assert.match(approvals, /<div class="chain-line">/, "待落盘页同样给链");
+  assert.match(approvals, /<span class="c-waiting" title="采纳">采纳·<\/span>/);
+  assert.match(approvals, /<div class="next-line">待落盘点批准<\/div>/);
 });

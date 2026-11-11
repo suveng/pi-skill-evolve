@@ -25,7 +25,7 @@ export interface QueueItem {
   status: QueueStatus;
   proposalType?: string;
   detail?: string;
-  /** 自动评审关着时入队的条目：run 没有 03-review.json，等人工 `/skill-evolve approve`（待审批页可见） */
+  /** 自动评审关着时入队的条目：run 没有 03-review.json，等人工 `/skill-evolve approve`（待落盘页可见） */
   reviewSkipped?: boolean;
 }
 
