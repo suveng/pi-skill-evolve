@@ -197,6 +197,7 @@ function reviewSection(detail: RunDetail): string {
 verdict <b class="${review.verdict === "pass" ? "ok" : "fail"}">${escapeHtml(review.verdict)}</b> ·
 action <b>${escapeHtml(review.action)}</b> ·
 状态 ${escapeHtml(review.status)} ·
+重写 <b>${detail.rewrites}</b> 次 ·
 评审模型 <code>${escapeHtml(review.reviewerModel)}</code>
 </p>
 ${summary}

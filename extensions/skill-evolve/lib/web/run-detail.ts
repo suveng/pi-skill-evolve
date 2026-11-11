@@ -83,6 +83,8 @@ export interface RunDetail {
   hasReviewLog: boolean;
   /** 每次重写产生的日志文件名（agent-rewrite-1.log …），按次序号排好 */
   rewriteLogs: string[];
+  /** 评审不通过后重写了几次（0 = 一次就过）；读 03-review.json 的 rewrites，旧 run 为 0 */
+  rewrites: number;
   /** 02-proposal.diff 原文；没有这个文件为 null */
   diff: string | null;
   /** candidate 目录里的技能名（与 skill 一致才读全文） */
@@ -293,6 +295,8 @@ export function readRunDetail(evolutionDir: string, runId: string): RunDetail | 
     hasChildLog,
     hasReviewLog,
     rewriteLogs,
+    // 优先评估审结论里的记录，其次 run.json 的 review.rewrites；都没有按 0（旧 run 没有这个字段）
+    rewrites: asNumber(readJson(path.join(runDir, "03-review.json"))?.rewrites) ?? asNumber(record?.review?.rewrites) ?? 0,
     diff: readTextFile(path.join(runDir, "02-proposal.diff")),
     ...candidate,
     ...review,
