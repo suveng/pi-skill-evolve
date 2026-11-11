@@ -1,5 +1,5 @@
 /**
- * 提案解析与校验单测（设计稿 九、十）：正常 diff、超 40 行、越界路径、candidate frontmatter。
+ * 提案解析与校验单测（设计稿 九、十）：正常 diff、超上限、越界路径、candidate frontmatter。
  *
  * 全部走临时 run 目录：校验函数本来就是「读盘 + 判定」，只测纯函数会漏掉 diff 文件名约定。
  */
@@ -78,7 +78,7 @@ test("validateProposal：没有 02-proposal.json 判 missing", () => {
   assert.equal(validateProposal(dir).status, "missing");
 });
 
-test("validateProposal：增删超过 40 行判 too_large（不拒绝生成，标给人工）", () => {
+test("validateProposal：增删刚好到上限（200×2 行）判 too_large（不拒绝生成，标给人工）", () => {
   const long = [
     "--- a/.pi/skills/deploy-test/SKILL.md",
     "+++ b/.pi/skills/deploy-test/SKILL.md",
@@ -92,6 +92,20 @@ test("validateProposal：增删超过 40 行判 too_large（不拒绝生成，�
   assert.equal(check.added, MAX_DIFF_LINES);
   assert.equal(check.removed, MAX_DIFF_LINES);
   assert.match(check.detail, /转人工/);
+});
+
+test("validateProposal：上限内（1 行）照常 ok，门槛没被过度放宽", () => {
+  const dir = runDir({
+    "02-proposal.json": proposalJson(),
+    "02-proposal.diff": [
+      "--- a/.pi/skills/deploy-test/SKILL.md",
+      "+++ b/.pi/skills/deploy-test/SKILL.md",
+      "@@ -1,1 +1,1 @@",
+      "-旧行",
+      "+新行",
+    ].join("\n"),
+  });
+  assert.equal(validateProposal(dir).status, "ok");
 });
 
 test("validateProposal：diff 动了技能目录外的路径判 bad_path", () => {

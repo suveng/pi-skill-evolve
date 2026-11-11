@@ -10,7 +10,7 @@ import * as path from "node:path";
 import { ratio, type MutationQueue, type TelemetryEvent } from "./telemetry.ts";
 
 /** 归因分布只统计 A~H 八类（semantic 是「判不动」的兜底，不算一类原因）；G = 领域内缺词（该改），H = 与本技能无关（不该改） */
-export const ATTRIBUTION_KEYS = ["A", "B", "C", "D", "E", "F", "G", "H"] as const;
+export const ATTRIBUTION_KEYS = ["A", "B", "C", "D", "E", "F", "G", "H", "I"] as const;
 export type AttributionKey = (typeof ATTRIBUTION_KEYS)[number];
 
 export interface MetricsRow {

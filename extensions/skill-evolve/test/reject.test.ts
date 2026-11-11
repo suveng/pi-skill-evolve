@@ -59,7 +59,12 @@ function tools(fixture: Fixture) {
 async function seedQueue(fixture: Fixture): Promise<void> {
   await saveGate0(fixture.evolutionDir, { at: NOW, status: "", diff: "" }, directQueue);
   const added = await tools(fixture).enqueueReady();
-  assert.equal(added, 1, "前置条件：正文改动应入队成一条 approval");
+  assert.equal(added, 1, "前置条件：正文改动应入队一条");
+  // 正文改动现在默认 auto；这条用例测的是「人拒绝」，把级别抬成 approval 才走人工路径
+  const file = path.join(fixture.evolutionDir, "queue.json");
+  const list = JSON.parse(fs.readFileSync(file, "utf8")) as { runId: string; level?: string }[];
+  for (const item of list) if (item.runId === "run-body") item.level = "approval";
+  fs.writeFileSync(file, JSON.stringify(list), "utf8");
 }
 
 function runStatus(fixture: Fixture): string {

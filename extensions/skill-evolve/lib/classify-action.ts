@@ -2,8 +2,8 @@
  * 13.1 三级权限的代码判定：只看 diff 真改了什么，不看 LLM 写的 action 字段（它只作参考，冲突以本文件为准）。
  *
  * forbidden = 立即拒绝（删技能、改 frontmatter 语义字段、动插件自身、路径越界）；
- * auto = settle 时自动应用（只动 description 文案、新建 .cursor 路由 stub、AGENTS.md 索引表增删一行）；
- * approval = 其余全部（正文条款、新增技能、合并），必须 `/skill-evolve approve <runId>`。
+ * auto = settle 时自动应用（改描述或正文、新建 .cursor 路由 stub、AGENTS.md 索引表增删一行）；
+ * approval = 其余全部（新增技能、合并），必须 `/skill-evolve approve <runId>` 或面板点批准。
  *
  * 为什么按「行」判而不是按意图判：模型可以声称自己只改了 description，代码只认它真改的行。
  */
@@ -129,8 +129,10 @@ export function classifyChange(input: ClassifyInput): ClassifyResult {
       return section.lines.every((line) => line.sign === " " || line.text.trim().length === 0 || INDEX_ROW.test(line.text));
     }
     if (!SKILL_FILE.test(section.path)) return false;
-    const flags = descriptionFlags(section);
-    return section.lines.every((line, index) => line.sign === " " || line.text.trim().length === 0 || flags[index]);
+    // 正文与 description 同等对待：2026-11-11 用户口径「正文也可以改，也可以自动采纳」。
+    // 语义字段（name / allowed-tools / disable-model-invocation）已在上面按行判过 forbidden，这里不必再拦。
+    // 仍然拦的只有「新建整份技能文件」——那是造技能，不是修技能。
+    return !section.created;
   };
 
   if (!sections.every(sectionAuto)) {
@@ -138,7 +140,7 @@ export function classifyChange(input: ClassifyInput): ClassifyResult {
     const offender = sections.find((section) => !sectionAuto(section));
     return {
       level: "approval",
-      reasons: [`改动落在正文条款 / 新增技能 / 合并（${offender?.path ?? "未知路径"}）`],
+      reasons: [`新增技能文件 / 改动超出技能文件（${offender?.path ?? "未知路径"}）`],
       targets,
     };
   }
@@ -152,7 +154,7 @@ export function classifyChange(input: ClassifyInput): ClassifyResult {
 
   const cursorOnly = sections.every((section) => CURSOR_STUB.test(section.path));
   if (cursorOnly) return { level: "auto", reasons: ["新建 .cursor 路由 stub"], targets };
-  return { level: "auto", reasons: ["只改 description（含续行）与 .cursor stub"], targets };
+  return { level: "auto", reasons: ["改技能文件（描述或正文）与 .cursor stub"], targets };
 }
 
 /** 只看级别的旧调用面（评审督导写 03-review.json 的 action 用） */

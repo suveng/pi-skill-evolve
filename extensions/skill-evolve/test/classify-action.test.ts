@@ -25,13 +25,13 @@ test("只改 description 一行 → auto", () => {
   assert.deepEqual(result.targets, [SKILL]);
 });
 
-test("description 改完再碰一条正文条款 → approval（不能只因为有一行 description 就放过）", () => {
+test("description 连正文一起改 → auto（正文与 description 同等授权）", () => {
   const result = classifyChange({
     diffText: diff(SKILL, "-description: 部署测试服\n+description: 部署测服并给出验收清单\n-禁止 pkill -f\n+禁止用 pkill -f"),
     proposalType: "improve",
     skill: "deploy-test",
   });
-  assert.equal(result.level, "approval");
+  assert.equal(result.level, "auto");
 });
 
 test("description 续行（缩进 ≥2）与纯空白改动仍算 auto", () => {
@@ -128,6 +128,6 @@ test("parseSections 跳过头部元信息与 @@ / \\ 行，保留改动的符号
 
 test("classifyAction 兼容旧调用面（只看级别）", () => {
   assert.equal(classifyAction(diff(SKILL, "-description: 旧\n+description: 新"), "improve"), "auto");
-  assert.equal(classifyAction(diff(SKILL, "-正文\n+正文2"), "improve"), "approval");
+  assert.equal(classifyAction(diff(SKILL, "-正文\n+正文2"), "improve"), "auto");
   assert.equal(classifyAction(diff(SKILL, "-a\n+b"), "prune"), "forbidden");
 });

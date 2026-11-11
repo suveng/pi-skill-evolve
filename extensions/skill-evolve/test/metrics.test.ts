@@ -128,9 +128,11 @@ function emptyRow(week: string, ts: number) {
   };
 }
 
-test("归因分布含 H：请求与技能领域无关不算「缺词」，单独一列", () => {
-  // G = 领域内缺词（该改 description），H = 与这个技能无关（不该改）；两件事必须分开统计
+test("归因分布含 H 与 I：与技能领域无关 / 正文与实现不符，各自单独一列", () => {
+  // G = 领域内缺词（该改 description），H = 与这个技能无关（不该改），I = 正文写错了（该改正文）
   assert.ok((ATTRIBUTION_KEYS as readonly string[]).includes("H"));
   assert.equal((ATTRIBUTION_KEYS as readonly string[]).indexOf("H"), 7);
-  assert.equal(ATTRIBUTION_KEYS.length, 8);
+  assert.ok((ATTRIBUTION_KEYS as readonly string[]).includes("I"));
+  assert.equal((ATTRIBUTION_KEYS as readonly string[]).indexOf("I"), 8);
+  assert.equal(ATTRIBUTION_KEYS.length, 9);
 });

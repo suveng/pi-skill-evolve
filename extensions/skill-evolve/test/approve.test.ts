@@ -19,6 +19,14 @@ const SKILL_REL = ".pi/skills/demo/SKILL.md";
 const SKILL_TEXT = "---\nname: demo\ndescription: 演示技能\n---\n\n## 步骤\n1. 先读文档\n";
 const AUTO_DIFF = `--- a/${SKILL_REL}\n+++ b/${SKILL_REL}\n@@ -3,1 +3,1 @@\n-description: 演示技能\n+description: 演示技能（改后）\n`;
 const BODY_DIFF = `--- a/${SKILL_REL}\n+++ b/${SKILL_REL}\n@@ -7,1 +7,1 @@\n-1. 先读文档\n+1. 先读文档，再确认\n`;
+/** 把队列里某条 pending 强行抬到 approval：approve 路径本身不该依赖分级算法的实现细节 */
+function forceApproval(evolutionDir: string, runId: string): void {
+  const file = path.join(evolutionDir, "queue.json");
+  const list = JSON.parse(fs.readFileSync(file, "utf8")) as { runId: string; level?: string }[];
+  for (const item of list) if (item.runId === runId) item.level = "approval";
+  fs.writeFileSync(file, JSON.stringify(list), "utf8");
+}
+
 
 interface Fixture {
   cwd: string;
@@ -138,11 +146,11 @@ test("只给 reviewed 的 run 入队，级别由代码判（description 改动 �
   assert.deepEqual(queue[0]?.targets, [SKILL_REL]);
 });
 
-test("正文改动 → approval 级入队（不自动写盘）", async () => {
+test("正文改动 → auto 级入队（2026-11-11 起正文也可以自动采纳）", async () => {
   const fixture = setup();
   seedRun(fixture, "run-body", "reviewed", BODY_DIFF);
   await tools(fixture).enqueueReady();
-  assert.equal(readQueue(fixture.evolutionDir)[0]?.level, "approval");
+  assert.equal(readQueue(fixture.evolutionDir)[0]?.level, "auto");
 });
 
 test("路径越界的 run 判 forbidden：不入队并记日志", async () => {
@@ -187,6 +195,8 @@ test("approve：pending 的 approval 条走五道闸写盘，成功后队列 app
   const fixture = setup();
   seedRun(fixture, "run-body", "reviewed", BODY_DIFF);
   const instance = tools(fixture);
+  await instance.enqueueReady();
+  forceApproval(fixture.evolutionDir, "run-body");
   instance.sessionStart();
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(readQueue(fixture.evolutionDir)[0]?.status, "pending");
@@ -253,6 +263,7 @@ test("queueText 分组列出 pending / applied 并给 pending 的 targets", asyn
   seedRun(fixture, "run-body", "reviewed", BODY_DIFF);
   const instance = tools(fixture);
   await instance.enqueueReady();
+  forceApproval(fixture.evolutionDir, "run-body");
   const text = instance.queueText();
   assert.match(text, /采纳队列：/);
   assert.match(text, /pending 1 条/);
@@ -297,6 +308,7 @@ test("同一技能有更早 pending 时，新 run 入队即 superseded 且不会
   seedRun(fixture, "run-body", "reviewed", BODY_DIFF);
   const instance = tools(fixture);
   await instance.enqueueReady();
+  forceApproval(fixture.evolutionDir, "run-body");
   // 再放一条同 skill 的 reviewed run（前一条还没处理）
   const second = path.join(fixture.evolutionDir, "runs", "run-second");
   fs.mkdirSync(second, { recursive: true });

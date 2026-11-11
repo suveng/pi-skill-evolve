@@ -12,8 +12,8 @@ import * as path from "node:path";
 export const PROPOSAL_TYPES = ["improve", "create", "merge", "prune"] as const;
 export type ProposalType = (typeof PROPOSAL_TYPES)[number];
 
-/** 增删行合计超过它不拒绝生成，但标记转人工：一次改 40 行以上的技能文案没人能审 */
-export const MAX_DIFF_LINES = 40;
+/** 增删行合计超过它不拒绝生成，但标记转人工：一次改 200 行以上没人能审（2026-11-11 从 40 放宽，允许改正文） */
+export const MAX_DIFF_LINES = 200;
 /** 提案只许动技能目录，别的路径一律 bad_path */
 export const SKILL_PATH_PREFIX = ".pi/skills/";
 

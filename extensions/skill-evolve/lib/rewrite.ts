@@ -70,7 +70,7 @@ export function buildRewritePrompt(input: RewritePromptInput): string {
   lines.push(`- run 目录：\`${runDir}\``);
   lines.push(`- 目标技能：\`${skill}\``);
   lines.push("- 产物与格式**完全不变**：`02-proposal.json` + `02-proposal.diff`（新建技能用 `candidate/<名>/SKILL.md`）");
-  lines.push("- diff 仍然是 unified diff、文件头只能指向 `.pi/skills/...`、增删合计不超过 40 行");
+  lines.push("- diff 仍然是 unified diff、文件头只能指向 `.pi/skills/...`、增删合计不超过 200 行");
   lines.push("");
   lines.push("## 二、评审意见（每条都要有对应的改动或明确回应）");
   lines.push("");
