@@ -61,6 +61,13 @@ export interface RunFinding {
   lines: number[];
 }
 
+/** run 目录里某个 Agent 的会话文件（面板直接渲染成会话页） */
+export interface AgentSessionInfo {
+  role: string;
+  file: string;
+  bytes: number;
+}
+
 export interface RunDetail {
   runId: string;
   status: string;
@@ -83,6 +90,8 @@ export interface RunDetail {
   hasReviewLog: boolean;
   /** 每次重写产生的日志文件名（agent-rewrite-1.log …），按次序号排好 */
   rewriteLogs: string[];
+  /** run 目录下 agents/ 里落过盘的 Agent 会话（分析 / 评审 / 重写都是真会话文件） */
+  agentSessions: AgentSessionInfo[];
   /** 评审不通过后重写了几次（0 = 一次就过）；读 03-review.json 的 rewrites，旧 run 为 0 */
   rewrites: number;
   /** 02-proposal.diff 原文；没有这个文件为 null */
@@ -237,6 +246,31 @@ function listRunFiles(dir: string): string[] {
   }
 }
 
+/** 读 `runs/<runId>/agents/*_se-<role>.jsonl`：损坏缺目录一律当空，不让详情页崩 */
+function listAgentSessions(runDir: string): AgentSessionInfo[] {
+  const dir = path.join(runDir, "agents");
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const out: AgentSessionInfo[] = [];
+  for (const name of names) {
+    const hit = /_se-([a-z0-9-]+)\.jsonl$/.exec(name);
+    if (!hit) continue;
+    const file = path.join(dir, name);
+    let bytes = 0;
+    try {
+      bytes = fs.statSync(file).size;
+    } catch {
+      continue;
+    }
+    out.push({ role: hit[1] as string, file, bytes });
+  }
+  return out.sort((a, b) => a.role.localeCompare(b.role));
+}
+
 export function readRunDetail(evolutionDir: string, runId: string): RunDetail | null {
   const runDir = resolveRunDir(evolutionDir, runId);
   if (!runDir || !isDir(runDir)) return null;
@@ -272,6 +306,7 @@ export function readRunDetail(evolutionDir: string, runId: string): RunDetail | 
     autoReview: config.autoReview,
     autoApply: config.autoApply,
   });
+  const agentSessions = listAgentSessions(runDir);
   const status = asText(record?.status, "（无 run.json）");
   // 归属与判据：与列表页同一份实现（./tab-origin.ts），详情页不再自己推断
   const origin = originOfRun({
@@ -295,6 +330,7 @@ export function readRunDetail(evolutionDir: string, runId: string): RunDetail | 
     hasChildLog,
     hasReviewLog,
     rewriteLogs,
+    agentSessions,
     // 优先评估审结论里的记录，其次 run.json 的 review.rewrites；都没有按 0（旧 run 没有这个字段）
     rewrites: asNumber(readJson(path.join(runDir, "03-review.json"))?.rewrites) ?? asNumber(record?.review?.rewrites) ?? 0,
     diff: readTextFile(path.join(runDir, "02-proposal.diff")),

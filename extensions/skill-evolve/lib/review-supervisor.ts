@@ -15,6 +15,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { AGENTS_DIR } from "./spawn-plan.ts";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { loadHardRules, scanText, type CompiledRules, type HardRuleHit } from "./hard-rules.ts";
 import { buildReviewPrompt } from "./review-prompt.ts";
@@ -262,6 +263,8 @@ export async function runReviewSupervisor(deps: ReviewSupervisorDeps): Promise<S
       recheck,
       // 评审 Agent 说了什么必须能复查：原始输出落到 run 目录，详情页给链接直接点开
       rawLogPath: path.join(runDir, AGENT_REVIEW_LOG),
+      // 会话文件与日志各存一份：日志是纯 stdout，会话文件能还原「问了什么、回了什么」的完整轮次
+      session: { dir: path.join(runDir, AGENTS_DIR), id: "se-review" },
     });
 
     const verdict = outcome.result.verdict;

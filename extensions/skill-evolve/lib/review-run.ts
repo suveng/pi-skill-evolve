@@ -30,6 +30,8 @@ export interface ReviewChildOptions {
   model?: string;
   env?: NodeJS.ProcessEnv;
   spawnFn?: ReviewSpawn;
+  /** 落会话时给这两项（面板靠它渲染评审 Agent 的完整会话） */
+  session?: { dir: string; id: string };
   timeoutMs?: number;
   pollMs?: number;
   now?: () => number;
@@ -47,8 +49,12 @@ export interface ReviewChildOutcome {
 export const DEFAULT_REVIEW_TIMEOUT_MS = 300_000;
 const DEFAULT_POLL_MS = 250;
 
-export function reviewArgs(prompt: string, model?: string): string[] {
-  const args = ["-p", "--no-session", "-ns", prompt];
+export function reviewArgs(prompt: string, model?: string, session?: { dir: string; id: string }): string[] {
+  const args = ["-p"];
+  // 落会话时不用 --no-session：面板要能像看待普通会话一样打开评审 Agent 的完整过程
+  if (session) args.push("--session-dir", session.dir, "--session-id", session.id);
+  else args.push("--no-session");
+  args.push("-ns", prompt);
   if (model && model !== "inherit") args.push("--model", model);
   return args;
 }
@@ -64,7 +70,7 @@ export async function runReviewChild(options: ReviewChildOptions): Promise<Revie
   let text = "";
   let settled = false;
   let failure: string | undefined;
-  const child = spawnFn(resolvePiBin(env), reviewArgs(options.prompt, options.model), {
+  const child = spawnFn(resolvePiBin(env), reviewArgs(options.prompt, options.model, options.session), {
     cwd: options.cwd,
     detached: true,
     stdio: ["ignore", "pipe", "ignore"],

@@ -16,7 +16,7 @@ import { acquireLock, releaseLock, writeOwnerSync } from "./lock.ts";
 import { buildPrompt, readPromptTemplateSync } from "./prompt.ts";
 import { writeRunRecord } from "./runs.ts";
 import { writeSessionIndex } from "./session-index.ts";
-import { CHILD_LOG, childEnvOf, isExecutableFile, resolvePiBin, spawnDetached, uniqueRunId, sessionHashOf } from "./spawn-plan.ts";
+import { agentSessionFlags, CHILD_LOG, childEnvOf, isExecutableFile, resolvePiBin, spawnDetached, uniqueRunId, sessionHashOf } from "./spawn-plan.ts";
 import { mergePendingRounds } from "./pending.ts";
 import { watchRunChild } from "./run-watch.ts";
 import { spawnReviewSupervisor } from "./review-spawn.ts";
@@ -217,7 +217,7 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
         coverage,
       });
       const spawnFn: SpawnLike = deps.spawnFn ?? (spawn as unknown as SpawnLike);
-      const child = spawnDetached(spawnFn, piBin, ["-p", "--no-session", "-ns", prompt], {
+      const child = spawnDetached(spawnFn, piBin, ["-p", ...agentSessionFlags(runDir, "analyze"), "-ns", prompt], {
         cwd: deps.cwd,
         env: childEnvOf(env),
         // stdout+stderr 落到 run 目录：子进程怎么死的，只有这份日志答得出来

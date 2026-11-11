@@ -14,7 +14,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawn as nodeSpawn } from "node:child_process";
-import { resolvePiBin } from "./spawn-plan.ts";
+import { agentSessionFlags, resolvePiBin } from "./spawn-plan.ts";
 import type { ReviewSpawn } from "./review-run.ts";
 
 /** 默认给 3 次重写机会（= 最多 4 次评审：首发一次 + 每次重写各一次） */
@@ -149,7 +149,7 @@ export async function runRewritePass(prompt: string, runDir: string, attempt: nu
   const spawnFn = deps.spawnFn ?? (nodeSpawn as unknown as ReviewSpawn);
   const logFile = path.join(runDir, rewriteLogName(attempt));
   const started = now();
-  const args = ["-p", "--no-session", "-ns", prompt];
+  const args = ["-p", ...agentSessionFlags(runDir, `rewrite-${attempt}`), "-ns", prompt];
   if (deps.model && deps.model !== "inherit") args.push("--model", deps.model);
 
   let stdout = "";

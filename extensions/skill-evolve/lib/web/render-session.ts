@@ -32,9 +32,11 @@ export function parseOnly(raw: string | null): OnlyRole {
 export type OnlyRole = "user" | "assistant" | null;
 
 /** 本页自己的地址：`sessionId` + 可选 `file` + 可选 `only=user|assistant`（全部走编码后的枚举值） */
-function sessionUrl(sessionId: string, file: string | null, only: OnlyRole): string {
-  const params = new URLSearchParams({ view: "session", sessionId });
-  if (file !== null) params.set("file", file);
+function sessionUrl(source: SessionSource, only: OnlyRole): string {
+  const params = new URLSearchParams({ view: "session", sessionId: source.sessionId });
+  // Agent 会话按 runId+role 重新定位：每次点击都重新读盘，会话还在跑时也能看到最新一段
+  if (source.agent) params.set("runId", source.agent.runId), params.set("agent", source.agent.role);
+  else if (source.file !== null) params.set("file", source.file);
   if (only !== null) params.set("only", only);
   return `/?${params.toString()}`;
 }
@@ -91,7 +93,7 @@ function streamOf(source: SessionSource, only: OnlyRole): { html: string; lastId
   const view = renderTranscript(transcript, {
     dropped: transcript.dropped,
     onlyRole: only === null ? undefined : only,
-    expandHref: only === "user" ? sessionUrl(source.sessionId, source.file, null) : null,
+    expandHref: only === "user" ? sessionUrl(source, null) : null,
   });
   const toc = renderToc(view.toc);
   const tocTitle = only === "assistant" ? "目录（助手回复）" : "目录（用户消息）";
@@ -133,7 +135,7 @@ export function renderSessionPage(
   const transcript = source.transcript;
   const link = (role: OnlyRole, text: string): string => {
     if (role === only) return `<strong>${text}</strong>`;
-    return `<a href="${escapeHtml(sessionUrl(source.sessionId, source.file, role))}">${text}</a>`;
+    return `<a href="${escapeHtml(sessionUrl(source, role))}">${text}</a>`;
   };
   const toggle =
     transcript === null ? "" : [link(null, "全部"), link("user", "只看用户"), link("assistant", "只看助手")].join(" / ");

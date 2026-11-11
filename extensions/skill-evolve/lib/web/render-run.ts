@@ -23,8 +23,18 @@ function kv(label: string, value: string): string {
  * Agent 会话入口：提案 Agent 的会话就是 child.log（它的 stdout 全量），
  * 评审 Agent 的原始输出在 agent-review.log。两个都给同一个详情页里可点，不用去翻目录。
  */
+/** Agent 会话链接：真会话文件在 runs/<id>/agents/ 里，用会话页渲染（角色过滤、工具折叠都能用） */
+function agentSessionLink(runId: string, role: string, label: string): string {
+  const href = `/?view=session&amp;runId=${encodeURIComponent(runId)}&amp;agent=${encodeURIComponent(role)}`;
+  return `<a href="${href}">${escapeHtml(label)}</a>`;
+}
+
 function agentSection(detail: RunDetail): string {
   const rid = encodeURIComponent(detail.runId);
+  const sessions = detail.agentSessions ?? [];
+  const roleOf = (role: string): string | null => (sessions.some((item) => item.role === role) ? role : null);
+  const analyzeRole = roleOf("analyze");
+  const reviewRole = roleOf("review");
   const propose = detail.hasChildLog
     ? `<a href="/log?runId=${rid}&amp;file=child.log">child.log</a> <span class="hint">（提案 Agent 的完整输出）</span>`
     : `<span class="off">没有 child.log（这轮没派发出提案）</span>`;
@@ -40,14 +50,22 @@ function agentSection(detail: RunDetail): string {
     rewriteLinks.length > 0
       ? `${rewriteLinks.join(" · ")} <span class="hint">（第 N 次重写的完整输出）</span>`
       : `<span class="off">没有重写日志（评审一次就过，或这一版还没评到）</span>`;
+  // 有会话文件就给「会话」入口（能看问答轮次 + 工具调用），日志作为原始输出备查
+  const withSession = (role: string | null, label: string, fallback: string): string =>
+    role === null ? fallback : `${agentSessionLink(detail.runId, role, label)} ${fallback}`;
+  const rewriteSessions = sessions
+    .filter((item) => /^rewrite-\d+$/.test(item.role))
+    .map((item) => agentSessionLink(detail.runId, item.role, `第 ${item.role.replace("rewrite-", "")} 次`));
+  const rewriteAll =
+    rewriteSessions.length > 0 ? `${rewriteSessions.join(" · ")} <span class="hint">（每次重写的会话）</span>` : rewrite;
   return `<section>
 <h2>Agent 会话</h2>
 <div class="kv">
-${kv("提案 Agent", propose)}
-${kv("评审 Agent", review)}
-${kv("重写 Agent", rewrite)}
+${kv("提案 Agent", withSession(analyzeRole, "会话", propose))}
+${kv("评审 Agent", withSession(reviewRole, "会话", review))}
+${kv("重写 Agent", rewriteAll)}
 </div>
-<p class="hint">用户会话（这段对话本身）见上面的「会话」一行。</p>
+<p class="hint">「会话」是 pi 落盘的完整对话（含工具调用），日志是它的原始 stdout；用户会话（这段对话本身）见上面的「会话」一行。</p>
 </section>`;
 }
 

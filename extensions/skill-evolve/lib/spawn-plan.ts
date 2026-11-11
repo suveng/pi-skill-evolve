@@ -156,6 +156,14 @@ export function uniqueRunId(evolutionDir: string, sessionId: string, ts: number)
  *
  * 复盘只需要「读材料 + 写提案」，不该去当任何守护进程；其余变量（路径、代理、模型凭据）一律保留。
  */
+/** 子进程的会话落在 run 目录下的 agents/：面板能像看待普通会话一样渲染它 */
+export const AGENTS_DIR = "agents";
+
+/** `pi -p` 的会话参数：id 定成 `se-<role>`，面板按 `_se-<role>.jsonl` 就能找回文件 */
+export function agentSessionFlags(runDir: string, role: string): string[] {
+  return ["--session-dir", path.join(runDir, AGENTS_DIR), "--session-id", `se-${role}`];
+}
+
 const CHILD_ENV_DROPS: readonly string[] = ["PI_FEISHU_DAEMON"];
 
 export function stripDaemonFlags(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {

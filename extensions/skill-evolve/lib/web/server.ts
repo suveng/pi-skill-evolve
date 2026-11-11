@@ -32,7 +32,7 @@ import { renderRunPage } from "./render-run.ts";
 import { parseOnly, renderSessionPage } from "./render-session.ts";
 import { renderSkillPage, renderSkillsPage } from "./render-skills.ts";
 import { handleDiff, readRunDetail } from "./run-detail.ts";
-import { readSessionSource } from "./session-file.ts";
+import { readAgentSessionSource, readSessionSource } from "./session-file.ts";
 import { parseDays, readSkillDetail, readSkills } from "./skills.ts";
 
 /** 默认端口：7788 是面板约定值（TUI 提示与文档里都写这个），改它得同时改文档 */
@@ -101,12 +101,17 @@ function renderGet(ctx: RouteContext, url: URL): GetResult {
   const view = parsePanelView(url.searchParams.get("view"));
   const days = parseDays(url.searchParams.get("days"));
   if (view === "session") {
-    const sessionId = url.searchParams.get("sessionId") ?? "";
-    const source = readSessionSource({
-      evolutionDir: ctx.evolutionDir,
-      sessionId,
-      ...(url.searchParams.get("file") !== null ? { file: url.searchParams.get("file") } : {}),
-    });
+    const runId = url.searchParams.get("runId");
+    const agent = url.searchParams.get("agent");
+    // 两种会话：`runId+agent` = run 目录下的子进程会话；`sessionId` = 用户会话
+    const source =
+      runId !== null && agent !== null
+        ? readAgentSessionSource({ evolutionDir: ctx.evolutionDir, runId, role: agent })
+        : readSessionSource({
+            evolutionDir: ctx.evolutionDir,
+            sessionId: url.searchParams.get("sessionId") ?? "",
+            ...(url.searchParams.get("file") !== null ? { file: url.searchParams.get("file") } : {}),
+          });
     // `only=user` 在服务端过滤（面板零 JS）：列表只渲染用户消息与助手纯文本，工具调用压成一行
     return {
       status: 200,

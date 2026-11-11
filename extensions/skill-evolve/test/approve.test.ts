@@ -194,11 +194,10 @@ test("session_start：写闸0 快照 + 自动应用 auto 条（改文件、队�
 test("approve：pending 的 approval 条走五道闸写盘，成功后队列 applied", async () => {
   const fixture = setup();
   seedRun(fixture, "run-body", "reviewed", BODY_DIFF);
+  await seedGate0(fixture);
   const instance = tools(fixture);
   await instance.enqueueReady();
   forceApproval(fixture.evolutionDir, "run-body");
-  instance.sessionStart();
-  await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(readQueue(fixture.evolutionDir)[0]?.status, "pending");
   const text = await instance.approve("run-body", false);
   assert.match(text, /已采纳 run-body/);

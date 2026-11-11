@@ -25,6 +25,8 @@ const RUN_SCAN_LIMIT = 100;
 
 export interface SessionSource {
   sessionId: string;
+  /** 子进程（分析 / 评审 / 重写 Agent）的会话：面板用 runId+agent 定位，不走用户会话目录 */
+  agent?: { runId: string; role: string };
   /** 解析到的会话原文绝对路径；找不到 = null */
   file: string | null;
   /** 文件字节数（找不到 = 0） */
@@ -113,6 +115,54 @@ export function declaredSessionFile(evolutionDir: string, sessionId: string): st
  * 读出会话原文并解析。找不到文件不抛错：页面要显示「会话文件已不在本机」这句人话，
  * 而不是一个 500 或空白页。
  */
+/** agent 会话的角色白名单：与 spawn 时用的 `se-<role>.jsonl` 一致 */
+export const AGENT_ROLE = /^(?:analyze|review|rewrite-\d+)$/;
+
+/**
+ * 读 run 目录下某个 Agent 的会话（`runs/<runId>/agents/*_se-<role>.jsonl`）。
+ * 路径全部拼自 runId/role 两个已校验字段，外部传不进任意路径。
+ */
+export function readAgentSessionSource(input: {
+  evolutionDir: string;
+  runId: string;
+  role: string;
+}): SessionSource {
+  const runId = input.runId.trim();
+  const role = input.role.trim();
+  const empty = (): SessionSource => ({
+    sessionId: `${runId.slice(0, 8)}/${role}`,
+    agent: { runId, role },
+    file: null,
+    sizeBytes: 0,
+    transcript: null,
+  });
+  if (!/^[A-Za-z0-9._-]+$/.test(runId) || runId.includes("..")) return empty();
+  if (!AGENT_ROLE.test(role)) return empty();
+  const dir = path.join(input.evolutionDir, "runs", runId, "agents");
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return empty();
+  }
+  const hit = names.filter((name) => name.endsWith(`_se-${role}.jsonl`)).sort().at(-1);
+  if (hit === undefined) return empty();
+  const file = path.join(dir, hit);
+  let raw: string;
+  try {
+    raw = fs.readFileSync(file, "utf8");
+  } catch {
+    return empty();
+  }
+  return {
+    sessionId: `${runId.slice(0, 8)}/${role}`,
+    agent: { runId, role },
+    file,
+    sizeBytes: Buffer.byteLength(raw, "utf8"),
+    transcript: parseSessionText(raw),
+  };
+}
+
 export function readSessionSource(input: {
   evolutionDir: string;
   sessionId: string;

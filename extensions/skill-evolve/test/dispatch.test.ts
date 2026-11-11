@@ -164,8 +164,16 @@ test("dispatch 成功：spawn 参数、env、run.json、会话索引都到位", 
   if (outcome.status !== "dispatched") return;
   const { command, args, options } = h.calls[0];
   assert.equal(command, DEFAULT_PI_BIN);
-  assert.deepEqual(args.slice(0, 3), ["-p", "--no-session", "-ns"]);
-  assert.equal(args[3].includes(sessionFile), true);
+  // 子进程会话落进 run 目录的 agents/：面板要能像看待普通会话一样打开它
+  assert.deepEqual(args.slice(0, 6), [
+    "-p",
+    "--session-dir",
+    path.join(h.dir, ".pi", "evolution", "runs", outcome.run.runId, "agents"),
+    "--session-id",
+    "se-analyze",
+    "-ns",
+  ]);
+  assert.equal(args.some((arg) => arg.includes(sessionFile)), true, "prompt 里要带上用户会话路径");
   assert.equal(options.detached, true);
   assert.equal((options.env as NodeJS.ProcessEnv).SKILL_EVOLVE_CHILD, "1");
   // stdout+stderr 必须落到 run 目录下的 child.log：子进程静默死掉时这是唯一的现场
