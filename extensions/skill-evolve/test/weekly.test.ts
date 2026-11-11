@@ -97,7 +97,7 @@ test("周报：采纳率 / 回滚率 / 归因分布", () => {
     { runId: "r2", status: "proposed", dispatchedAt: NOW, sessionId: "s" },
   ];
   const text = buildWeeklyReport(input(events, { runs }));
-  assert.match(text, /归因分布：A 0 · B 0 · C 0 · D 0 · E 0 · F 0 · G 1/);
+  assert.match(text, /归因分布：A 0 · B 0 · C 0 · D 0 · E 0 · F 0 · G 1 · H 0/);
   assert.match(text, /采纳率 50\.0%（采纳 1 \/ 提案 2）/);
   assert.match(text, /回滚率 0\.0%（回滚 0 \/ 采纳 1）/);
 });

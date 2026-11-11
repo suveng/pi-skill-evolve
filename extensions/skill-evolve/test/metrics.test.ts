@@ -7,7 +7,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { appendMetrics, buildMetrics, isoWeek, metricsFile, readMetrics, rollbackRate } from "../lib/metrics.ts";
+import { ATTRIBUTION_KEYS, appendMetrics, buildMetrics, isoWeek, metricsFile, readMetrics, rollbackRate } from "../lib/metrics.ts";
 import { directQueue, type TelemetryEvent } from "../lib/telemetry.ts";
 
 const DAY = 86_400_000;
@@ -127,3 +127,10 @@ function emptyRow(week: string, ts: number) {
     attribution: { A: 0, B: 0, C: 0, D: 0, E: 0, F: 0, G: 0 },
   };
 }
+
+test("归因分布含 H：请求与技能领域无关不算「缺词」，单独一列", () => {
+  // G = 领域内缺词（该改 description），H = 与这个技能无关（不该改）；两件事必须分开统计
+  assert.ok((ATTRIBUTION_KEYS as readonly string[]).includes("H"));
+  assert.equal((ATTRIBUTION_KEYS as readonly string[]).indexOf("H"), 7);
+  assert.equal(ATTRIBUTION_KEYS.length, 8);
+});

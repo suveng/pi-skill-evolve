@@ -182,7 +182,7 @@ export function buildWeeklyReport(input: WeeklyInput): string {
   // 分母是「加载 + 尝试失败」：只除加载数会算出 >100% 的假值
   lines.push(`尝试失败率 ${percent(failed, loaded + failed)}（失败 ${failed} / 尝试 ${loaded + failed}）`);
   const attributionTotal = [...attribution.values()].reduce((sum, count) => sum + count, 0);
-  const distribution = ["A", "B", "C", "D", "E", "F", "G"]
+  const distribution = ["A", "B", "C", "D", "E", "F", "G", "H"]
     .map((key) => `${key} ${attribution.get(key) ?? 0}`)
     .join(" · ");
   lines.push(`归因分布：${distribution}${attributionTotal === 0 ? "（本次无归因记录）" : ""}`);
