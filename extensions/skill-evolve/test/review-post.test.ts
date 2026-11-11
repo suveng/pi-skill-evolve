@@ -27,6 +27,8 @@ test("合法 pass 返回 ok，且 summary / passed 原样带出", () => {
 test("带 ```json 围栏与前后废话也能抠出 JSON", () => {
   const text = `好的，结论如下：\n\`\`\`json\n${GOOD_PASS}\n\`\`\`\n以上。`;
   assert.equal(parseReviewJson(text).json?.verdict, "pass");
+  assert.equal(postProcessReview(text).status, "ok");
+});
 
 test("候选内容里带 ```plantuml 围栏时，不能把那段示例当成 JSON 正文", () => {
   // 2026-11-11 真实事故：评审先贴了候选 description（含 ```plantuml），
@@ -51,8 +53,6 @@ test("候选内容里带 ```plantuml 围栏时，不能把那段示例当成 JSO
 test("围栏里没有对象时退回全文找 JSON", () => {
   const text = "```text\n不是 JSON\n```\n最终：{\"verdict\":\"pass\",\"blocking\":[],\"passed\":[]}";
   assert.equal(parseReviewJson(text).json?.verdict, "pass");
-});
-  assert.equal(postProcessReview(text).status, "ok");
 });
 
 test("坏 verdict 判 invalid：bad-verdict", () => {
