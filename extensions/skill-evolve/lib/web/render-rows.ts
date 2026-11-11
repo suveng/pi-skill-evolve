@@ -158,6 +158,8 @@ export function doneRows(items: readonly DoneItem[], ctx?: RowContext): ListRow[
     review_failed: { text: "评审失败", tone: "red" },
     // 提案者没下文 / 放弃：没发生坏事，用淡灰
     abandoned: { text: "已放弃", tone: "faint" },
+    // 分析判定不需要改：不是故障，也不该把英文状态名直接甩给人看
+    analyzed: { text: "不需要改", tone: "faint" },
     // 越权写入是纪律事故，必须红
     unauthorized_write: { text: "越权写入", tone: "red" },
   };

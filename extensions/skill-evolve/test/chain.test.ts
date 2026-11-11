@@ -48,6 +48,11 @@ test("被否与评审失败：评审段 dead", () => {
   assert.equal(statesOf("review_failed"), "done,done,done,dead,waiting");
 });
 
+test("被顶掉：五段里前四段都成过，采纳段等着（不是失败）", () => {
+  assert.equal(statesOf("superseded"), "done,done,done,done,waiting");
+  assert.equal(nextStepText({ status: "superseded" }), "被别的提案顶掉，可换成这份");
+});
+
 test("回滚：采纳段 dead（前面都成过）", () => {
   assert.equal(statesOf("rolled-back"), "done,done,done,done,dead");
 });

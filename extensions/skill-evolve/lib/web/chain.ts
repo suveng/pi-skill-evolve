@@ -78,8 +78,10 @@ export function chainOf(input: ChainInput): ChainStep[] {
       return steps(["done", "done", "done", "dead", "waiting"]);
     case "rolled-back":
       return steps(["done", "done", "done", "done", "dead"]);
-    case "failed":
     case "superseded":
+      // 被顶掉不是失败：评审过、只是同一技能已有更早的 pending 在排队
+      return steps(["done", "done", "done", "done", "waiting"]);
+    case "failed":
     case "abandoned":
     case "unauthorized_write":
       return steps(["done", "done", "done", "dead", "waiting"]);
@@ -121,8 +123,9 @@ export function nextStepText(input: ChainInput): string {
       return "被否，看评审意见";
     case "rolled-back":
       return "已回滚，看五闸";
-    case "failed":
     case "superseded":
+      return "被别的提案顶掉，可换成这份";
+    case "failed":
     case "abandoned":
     case "unauthorized_write":
       return "终态，不用管";
