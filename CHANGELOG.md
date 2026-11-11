@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.24] - 2026-11-11
+
+- 修：`scripts/panel.mjs` 传给子进程的 `promptTemplate` 少了一层目录（`<runtime>/lib/web/prompts/`），子进程读不到模板就退回内置最小指令 → 改成 `<runtime>/prompts/复盘.md`（实测重启后派发不再出现「复盘模板读取失败」）
+- 实测：重启桥接后新派发的复盘跑满全程（child.log 8 行、状态 analyzed），不再 1 秒被桥接 exit 带走
+
 ## [0.1.23] - 2026-11-11
 
 复盘子进程会被飞书桥接「顺手杀掉」（实测 run 260928fa-1794361982 只输出一行就死）。

@@ -129,7 +129,8 @@ async function start() {
       cwd,
       port,
       version,
-      promptTemplate: path.join(path.dirname(entry), "prompts", "复盘.md"),
+      // entry = <runtime>/lib/web/child-main.ts，模板在 <runtime>/prompts/ 下（少一层就会退化成内置最小指令）
+      promptTemplate: path.join(path.dirname(entry), "..", "..", "prompts", "复盘.md"),
     }),
   };
   const child = spawn(process.execPath, [entry], { detached: true, stdio: "ignore", env });
