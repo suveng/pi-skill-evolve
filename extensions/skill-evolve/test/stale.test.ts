@@ -187,13 +187,14 @@ test("collectPanelState：reviewing 只数活着的 run，staleCount 覆盖「�
   writeRun(dir, "r-young", { status: "dispatched", pid: 291917, dispatchedAt: NOW - MINUTE });
   writeRun(dir, "r-stale", { status: "stale", pid: 2, dispatchedAt: NOW - 20 * MINUTE });
   const state = collectPanelState({ evolutionDir: dir, now: NOW, alive: (pid) => pid === 1, maxRuntimeMs: 20 * MINUTE });
-  assert.equal(state.reviewing, 2, "r-dead 超期且 pid 不在不再算「复盘」；r-alive 与宽限期内的 r-young 仍算");
-  assert.equal(state.staleCount, 2, "r-stale 已落盘 + r-dead 判定命中：两处口径必须一致，否则网页会出现「卡死 1、列表 2 条」");
+  assert.equal(state.reviewing, 1, "pid 不在就不算「复盘」：r-dead 超期、r-young 还在宽限期，两者都不算，只有 r-alive 算");
+  assert.equal(state.staleCount, 3, "r-stale 已落盘 + r-dead 判定命中 + r-young 子进程已退：与列表同口径，不会出现「卡死 1、列表 3 条」");
 
-  // 5 分钟宽限内即使 pid 不在也还当在跑：与扫描共用同一口径，免得面板在子进程刚退出时闪一下
+  // 子进程一退就不是「复盘中」：宽限期只用来避免误判「卡死」，不能让它继续挂着「复盘 N」
+  // （否则进程早已不在、头顶却报「复盘中 1」，列表一条都没有 —— 2026-11-11 真事）
   const youngDead = collectPanelState({ evolutionDir: dir, now: NOW, alive: deadPid, maxRuntimeMs: 20 * MINUTE });
-  assert.equal(youngDead.reviewing, 2, "宽限期内的 r-young 仍算在跑");
-  assert.equal(youngDead.staleCount, 2, "宽限期内的死 pid 不算卡死，只有已落盘的 r-stale 与超期的 r-dead");
+  assert.equal(youngDead.reviewing, 0, "宽限期内的死 pid 也不再算在跑（此轮 alive 全为假，r-alive 同样不算）");
+  assert.equal(youngDead.staleCount, 4, "此轮 alive 全为假：r-alive 也成了死 pid，四条全列进卡死，面板与列表数字一致");
 });
 
 test("collectPanelState：analyzed 的 run 进程死掉不算「复盘」，督导活着才算", () => {

@@ -76,6 +76,22 @@ export interface StaleRun {
  * 纯判定，不做任何副作用 —— 面板要拿它算数，不能因为「看一眼面板」就去 kill 进程。
  * 返回 timeout 时由 scanStaleRuns 负责真的收尾（kill + 落盘）。
  */
+/**
+ * 子进程已经不在了（run 还停在 dispatched）。
+ *
+ * 与 `classifyStale` 的区别只在于**不等收口窗口**：classifyStale 要等满 STALE_MS 才判卡死
+ * （防误伤刚起来的子进程），而这里只要 pid 不在了就为真。面板拿它显式列出这类 run，
+ * 免得出现「头顶写复盘中 1、列表里一条都没有」——进程没了就不会再推进，它必须看得见。
+ */
+export function childGone(run: StaleTarget, deps: StaleDeps = {}): boolean {
+  if (!STALE_STATUSES.has(run.status)) return false;
+  const alive = deps.alive ?? isPidAlive;
+  const pid = typeof run.pid === "number" && run.pid > 0 ? run.pid : null;
+  // pid 缺失也算已死：dispatch 是先写 pid=null 再补写 pid，中间被打断就是这个形态
+  if (pid === null) return true;
+  return !alive(pid);
+}
+
 export function classifyStale(run: StaleTarget, now: number, deps: StaleDeps = {}): StaleVerdict {
   if (!STALE_STATUSES.has(run.status)) return { stale: false };
   // 没有派发时刻就证明不了「卡了多久」：宁可漏报一条，也不误伤刚起来的 run

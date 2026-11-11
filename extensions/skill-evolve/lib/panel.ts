@@ -11,7 +11,7 @@ import * as path from "node:path";
 import { isPidAlive } from "./lock.ts";
 import { readQueue } from "./queue.ts";
 import { listRuns } from "./runs.ts";
-import { classifyStale, type StaleDeps } from "./stale.ts";
+import { childGone, classifyStale, type StaleDeps } from "./stale.ts";
 
 /** 回滚率告警线：设计稿 14.2 定的 5%，样本少于 5 次不下结论 */
 export const ROLLBACK_ALERT = 0.05;
@@ -79,12 +79,17 @@ export function collectPanelState(input: {
     reviewing: runs.filter((run) => {
       if (!IN_FLIGHT.has(run.status)) return false;
       if (classifyStale(run, now, staleDeps).stale) return false;
-      if (run.status === "dispatched") return true;
+      // dispatched 也要看 pid：进程都没了，说「复盘中」就是骗人（与待处理页同一判据）
+      if (run.status === "dispatched") {
+        return (run.pid !== null && aliveOf(run.pid)) || (run.supervisorPid !== null && aliveOf(run.supervisorPid));
+      }
       return (run.pid !== null && aliveOf(run.pid)) || (run.supervisorPid !== null && aliveOf(run.supervisorPid));
     }).length,
     // 已经落成 stale 的 + 判据命中但还没落盘的都要算：只数 run.json 里的 status，会让
     // 「网页说卡死 3、实际列表 4 条」这种自相矛盾的数字漏出去（web 面板只读，不在那里补写盘）
-    staleCount: runs.filter((run) => run.status === "stale" || classifyStale(run, now, staleDeps).stale).length,
+    staleCount: runs.filter(
+      (run) => run.status === "stale" || classifyStale(run, now, staleDeps).stale || childGone(run, staleDeps),
+    ).length,
     pendingApprovals: queue.filter((item) => item.status === "pending" && item.level === "approval").length,
     lastAppliedAt: lastApplied?.at ?? null,
     rollbackRate: applied.length + rolledBack > 0 ? rolledBack / (applied.length + rolledBack) : 0,

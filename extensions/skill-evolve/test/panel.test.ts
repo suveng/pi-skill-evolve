@@ -52,7 +52,7 @@ test("statusLine：样本够且超 5% 才告警（含建议关 auto）", () => {
 
 test("collectPanelState：进行中的 run 算「复盘」，待批只数 approval 级 pending", () => {
   const dir = tmpDir();
-  writeRun(dir, "r1", "dispatched");
+  writeRun(dir, "r1", "dispatched", NOW, { pid: 1 });
   writeRun(dir, "r2", "proposed", NOW, { supervisorPid: 1 });
   writeRun(dir, "r5", "proposed", NOW, { pid: 999999 });
   writeRun(dir, "r3", "reviewed");

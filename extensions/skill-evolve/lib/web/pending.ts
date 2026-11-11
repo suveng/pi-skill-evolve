@@ -11,7 +11,7 @@ import type { QueueItem } from "../queue.ts";
 import { buildPipeline, renderPipelineLine } from "../pipeline.ts";
 import type { RunStatus, RunSummary } from "../runs.ts";
 import { CHILD_LOG } from "../spawn-plan.ts";
-import { classifyStale, readLogTail, readRunError } from "../stale.ts";
+import { STALE_MS, childGone, classifyStale, readLogTail, readRunError } from "../stale.ts";
 import type { WebStateDeps } from "./data.ts";
 import { asNumber, asText } from "./json-read.ts";
 import { sessionForRun, sessionIndex, sessionOfRun, type SessionRef } from "./run-session.ts";
@@ -164,7 +164,11 @@ export function buildPending(
   for (const run of runs) {
     if (running.has(run.runId)) continue; // 同一个 run 不能既「进行中」又「卡死」
     const persisted = run.status === "stale";
-    if (!persisted && !classifyStale(run, now).stale) continue;
+    const verdict = classifyStale(run, now);
+    // 子进程没了就一定会列出来，哪怕还没到 5 分钟收口窗口：
+    // 否则会出现「头顶写复盘中 1、列表一条都没有」——那条 run 的 pid 已经死了，不会再有下一步
+    const gone = childGone(run);
+    if (!persisted && !verdict.stale && !gone) continue;
     const error = readRunError(path.join(evolutionDir, "runs", run.runId));
     const tail = error?.childLogTail ?? [];
     const lastLine = tail.length > 0 ? tail[tail.length - 1]!.trim() : "";
@@ -175,7 +179,13 @@ export function buildPending(
       skill: run.proposal?.skill ?? "",
       at: error?.at ?? run.dispatchedAt,
       detail: [
-        `原因：${error?.reason === "timeout" ? "超时（子进程还活着但超过单 run 上限）" : "子进程已退出"}`,
+        `原因：${
+          error?.reason === "timeout"
+            ? "超时（子进程还活着但超过单 run 上限）"
+            : gone && !verdict.stale
+              ? `子进程已退出（还没到 ${Math.round(STALE_MS / 60_000)} 分钟收口窗口，督导会补写 stale）`
+              : "子进程已退出"
+        }`,
         lastLine.length > 0 ? `日志末行：${lastLine}` : "日志末行：（子进程没留下任何输出）",
         `排查：cat ${path.join(evolutionDir, "runs", run.runId, "run-error.json")}`,
         "不会自动重跑：需要重新复盘就 /skill-evolve run",

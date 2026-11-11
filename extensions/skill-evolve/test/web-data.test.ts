@@ -277,11 +277,15 @@ test("pending：督导活着 → 阶段写评审中，child.log 的 mtime 与末
   assert.ok(Math.abs(seconds - 12) <= 1, `mtime 距今应按秒渲染（实际 ${seconds}s）`);
 });
 
-test("pending：pid 已死且没超时 → 不出现在待处理页（不当成在跑）", () => {
+test("pending：pid 已死且没超时 → 也要列出来（归卡死，但说清还在收口窗口内）", () => {
   const evolutionDir = workspace();
   writeRun(evolutionDir, "dead", { status: "dispatched", pid: 4321, dispatchedAt: NOW });
   const state = collectWebState({ evolutionDir, now: NOW, alive: () => false, maxRuntimeMs: 20 * 60_000 });
-  assert.deepEqual(state.pending, []);
+  assert.equal(state.pending.length, 1, "子进程没了就不会再推进，不能从列表里凭空消失");
+  assert.equal(state.pending[0]!.kind, "stale");
+  assert.match(state.pending[0]!.detail, /子进程已退出（还没到 5 分钟收口窗口/);
+  assert.equal(state.summary.reviewing, 0, "头顶也不能再报「复盘中」");
+  assert.equal(state.summary.stale, 1);
 });
 
 test("approvals：只收 pending + approval 级，auto 级与已处理的行都不出现", () => {

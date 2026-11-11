@@ -46,7 +46,7 @@ test("refresh：状态变迁发条目并推面板状态", () => {
   });
   observer.refresh();
   assert.deepEqual(entries, ["reviewed:r1"], "只有出了结论的 run 发条目");
-  assert.deepEqual(states, [1], "dispatched 的 run 算进行中");
+  assert.deepEqual(states, [0], "这个 fixture 没有 pid，等同子进程已退出：不再算「复盘中」");
   observer.refresh();
   assert.deepEqual(entries, ["reviewed:r1"], "重复刷新不重复发");
 });
