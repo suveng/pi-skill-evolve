@@ -266,6 +266,7 @@ export function startWebPanel(options: WebPanelOptions): Promise<WebPanelResult>
     ...(options.onCleanup ? { onCleanup: options.onCleanup } : {}),
     ...(options.onSettings ? { onSettings: options.onSettings } : {}),
     ...(options.onReplace ? { onReplace: options.onReplace } : {}),
+    ...(options.onReview ? { onReview: options.onReview } : {}),
     port: () => actualPort,
   };
   const server = http.createServer((request, response) => {

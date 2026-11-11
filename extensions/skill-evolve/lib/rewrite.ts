@@ -223,10 +223,16 @@ export async function waitForNewProposal(
 export function archiveAttempt(
   runDir: string,
   attempt: number,
-  io?: { read: (file: string) => string | undefined; write: (file: string, text: string) => void },
+  io?: {
+    read: (file: string) => string | undefined;
+    write: (file: string, text: string) => void;
+    /** 写临时文件+改名的实现不会替你建目录：少了它会 ENOENT，整条督导链当场崩 */
+    mkdir?: (dir: string) => void;
+  },
 ): void {
   const to = path.join(runDir, "attempts", attemptDirName(attempt));
   if (io) {
+    io.mkdir?.(to);
     for (const name of [PROPOSAL_JSON, "02-proposal.diff", REVIEW_JSON, "03-review.md"]) {
       const text = io.read(path.join(runDir, name));
       if (text === undefined) continue;

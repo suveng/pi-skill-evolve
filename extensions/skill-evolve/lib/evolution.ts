@@ -12,6 +12,7 @@ import { baselinePath, createBaselineGate } from "./baseline.ts";
 import { isChildProcess } from "./child-env.ts";
 import type { ApplyDeps } from "./apply.ts";
 import { createDispatcher } from "./dispatch.ts";
+import { retryReview } from "./review-retry.ts";
 import { createApplyTools, type ApplyTools } from "./evolution-apply.ts";
 import { createModelTools, type ModelTools } from "./evolution-model.ts";
 import { createObserver, type Observer, type PanelDeps } from "./evolution-observe.ts";
@@ -99,6 +100,8 @@ export interface Evolution {
    * 返回本次做了什么，面板与日志都靠它告诉用户「后台任务没丢」。
    */
   recover(sessionId?: string): Promise<RecoveryAction[]>;
+  /** 督导崩了（run 永远停在 proposed）时补一刀：复用同一条评审启动路径 */
+  retryReview(runId: string): Promise<string>;
   /** 最近一次恢复的结果（面板可视化用；本进程内有效） */
   lastRecovery(): RecoveryAction[];
 }
@@ -296,6 +299,21 @@ export function createEvolution(deps: EvolutionDeps): Evolution {
    * 同步抛错也在这里吞：会话起点不能被恢复流程搞挂。
    */
   let lastActions: RecoveryAction[] = [];
+  const retryReviewOf = async (runId: string): Promise<string> =>
+    retryReview(
+      {
+        evolutionDir,
+        cwd: deps.cwd,
+        reviewModel: modelTools.reviewModel(),
+        maxRewrites: config.maxRewrites,
+        autoReview: config.autoReview,
+        env,
+        log,
+        ...(deps.supervisorSpawnFn ? { spawnFn: deps.supervisorSpawnFn } : {}),
+      },
+      runId,
+    );
+
   const recover = async (sessionId?: string): Promise<RecoveryAction[]> => {
     try {
       lastActions = await recoverRuns({
@@ -338,6 +356,7 @@ export function createEvolution(deps: EvolutionDeps): Evolution {
     apply: applyTools,
     observe: observer,
     recover,
+    retryReview: retryReviewOf,
     lastRecovery: () => lastActions,
   };
 }

@@ -25,7 +25,7 @@ import { SUPERVISOR_LOG } from "../review-spawn.ts";
 import { readLogTail } from "../stale.ts";
 
 /** `/action` 的 `name` 白名单：三个名字各自对应一个注入回调（开关走独立的 `/toggle?field=`） */
-export const ACTION_NAMES = ["run", "rerun", "cleanup"] as const;
+export const ACTION_NAMES = ["run", "rerun", "review", "cleanup"] as const;
 export type ActionName = (typeof ACTION_NAMES)[number];
 
 /** 一个写动作：返回给人看的结论（首行进 303 的 msg / err） */
@@ -46,6 +46,8 @@ export interface WriteHooks {
   onRunNow?: RunHook;
   /** 清理记录：只对 stale 放行，实现是把 run 目录移进 runs/.trash/ */
   onCleanup?: WebAction;
+  /** 重试评审：督导崩掉后 run 停在 proposed，补一刀同一条评审路径 */
+  onReview?: WebAction;
   /** 配置页保存：六项校验在 web 层，写盘与归一化走 evo.setSettings */
   onSettings?: SettingsHook;
   /** 换成这份：把被更早 pending 顶掉的条目换回来（只动队列，不碰技能文件） */
@@ -186,6 +188,14 @@ async function handleNamedAction(
     if (target === null) return;
     // 重跑不复用旧 runId：语义是「再派发一次复盘」，新旧两份结果都要留着对比
     await settle(ctx, response, action, view, () => runNow(), { runId: target.runId });
+    return;
+  }
+  if (action === "review") {
+    const review = ctx.onReview;
+    if (!review) return rejectReadOnly(response);
+    const target = resolveTarget(ctx, response, action, form);
+    if (target === null) return;
+    await settle(ctx, response, action, view, () => review(target.runId), { runId: target.runId });
     return;
   }
   const cleanup = ctx.onCleanup;

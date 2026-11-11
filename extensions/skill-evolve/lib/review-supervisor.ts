@@ -47,6 +47,8 @@ export interface ReviewSupervisorDeps {
   /** 读文本；undefined = 文件不存在（单测注入） */
   readText?: (file: string) => string | undefined;
   writeText?: (file: string, text: string) => void;
+  /** 建目录（单测注入假实现：io 是内存版时不能去真盘建目录） */
+  mkdirText?: (dir: string) => void;
   /** 评审模型："inherit" 或 provider/model */
   reviewModel?: string;
   rules?: CompiledRules;
@@ -295,7 +297,11 @@ export async function runReviewSupervisor(deps: ReviewSupervisorDeps): Promise<S
       `[skill-evolve] 评审未通过（${result.verdict ?? "无结论"}）：第 ${rewriteCount}/${maxRewrites} 次重写提案（${path.basename(runDir)}）`,
     );
     // 先留档：重写会覆盖 02-proposal.*，不留档就看不到「第一版为什么被否」
-    archiveAttempt(runDir, rewriteCount, { read, write });
+    archiveAttempt(runDir, rewriteCount, {
+      read,
+      write,
+      mkdir: deps.mkdirText ?? ((dir) => fs.mkdirSync(dir, { recursive: true })),
+    });
     const proposalFile = path.join(runDir, PROPOSAL_JSON);
     const previous = read(proposalFile);
     const rewritePrompt = buildRewritePrompt({

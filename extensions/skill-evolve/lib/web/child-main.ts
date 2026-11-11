@@ -91,6 +91,7 @@ export async function runChild(config: WebChildConfig): Promise<{ url: string; c
     onCleanup: (runId) => moveRunToTrash(evolutionDir, runId),
     onSettings: (patch) => evo.setSettings(patch),
     onReplace: (runId) => evo.apply.replaceSuperseded(runId),
+    onReview: (runId) => evo.retryReview(runId),
   });
   if (!result.ok) throw new Error(`${result.code}：${result.message}`);
   const panel = result.panel;

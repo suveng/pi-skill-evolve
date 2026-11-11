@@ -77,15 +77,20 @@ function logLink(runId: string): string {
 }
 
 /** 一个 `/action` 表单：csrf / name / runId / view 全走 hidden，按钮就是提交键 */
-function actionForm(name: "rerun" | "cleanup", runId: string, ctx: RowContext): string {
-  const label = name === "rerun" ? "重跑" : "清理";
-  const title = name === "rerun" ? "重跑这条 run（花 token）" : "移到 runs/.trash/，不会删数据";
+function actionForm(name: "rerun" | "cleanup" | "review", runId: string, ctx: RowContext, label?: string): string {
+  const text = label ?? (name === "rerun" ? "重跑" : name === "review" ? "重试评审" : "清理");
+  const title =
+    name === "rerun"
+      ? "重跑这条 run（花 token）"
+      : name === "review"
+        ? "提案已写出但督导没评：补起一次评审（沿用同一套评审逻辑）"
+        : "移到 runs/.trash/，不会删数据";
   return `<form method="post" action="/action">
 <input type="hidden" name="csrf" value="${escapeHtml(ctx.csrf)}">
 <input type="hidden" name="name" value="${name}">
 <input type="hidden" name="runId" value="${escapeHtml(runId)}">
 <input type="hidden" name="view" value="${ctx.view}">
-<button type="submit" title="${title}">${label}</button>
+<button type="submit" title="${title}">${text}</button>
 </form>`;
 }
 
@@ -94,9 +99,11 @@ function actionForm(name: "rerun" | "cleanup", runId: string, ctx: RowContext): 
  * 清理只给 `stale`：非卡死的 run 还在写盘，把目录移走等于抽掉活进程的 cwd。
  * 重跑只在可写面板出现 —— 只读面板给一个点了没反应的按钮等于骗人。
  */
-function activeOps(runId: string, ctx: RowContext, stale: boolean): string {
+function activeOps(runId: string, ctx: RowContext, stale: boolean, allowReview = false): string {
   const parts = [detailLink(runId)];
   if (ctx.writable) {
+    // 督导崩掉时 run 会永远停在 proposed：给一条自己补刀的路，别让人只能干等
+    if (allowReview) parts.push(actionForm("review", runId, ctx, "重试评审"));
     parts.push(actionForm("rerun", runId, ctx));
     if (stale) parts.push(actionForm("cleanup", runId, ctx));
   }
@@ -138,8 +145,8 @@ export function pendingRows(items: readonly PendingItem[], ctx: RowContext): Lis
     skill: item.skill,
     delta: null,
     session: item.session,
-    ops: activeOps(item.runId, ctx, item.kind === "stale"),
-    needsAction: item.kind === "stale" || item.kind === "approval",
+    ops: activeOps(item.runId, ctx, item.kind === "stale", item.kind === "to-review"),
+    needsAction: item.kind === "stale" || item.kind === "approval" || item.kind === "to-review",
     ...chainBits(PENDING_STATUS[item.kind]),
   }));
 }

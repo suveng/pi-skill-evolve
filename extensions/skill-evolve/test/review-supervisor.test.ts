@@ -43,6 +43,8 @@ function memFs(files: Record<string, string>) {
     writeText: (file: string, text: string) => {
       store.set(path.resolve(file), text);
     },
+    // 内存版 io 没有目录概念：不建真目录（真实现由 lib/rewrite.ts 的 mkdirSync 兜底）
+    mkdirText: () => undefined,
     text: (file: string) => store.get(path.resolve(file)),
     json: (file: string) => {
       const raw = store.get(path.resolve(file));
@@ -69,6 +71,7 @@ test("正常路径：pass → reviewed，写 03-review.json/.md 并回写 run.js
     reviewModel: "deepseek/flash",
     readText: fs.readText,
     writeText: fs.writeText,
+    mkdirText: fs.mkdirText,
     spawnFn: fakeReviewSpawn([PASS]),
     pollMs: 1,
     // 记下发给评审的 prompt，验证独立性（不给 rationale）
@@ -109,6 +112,7 @@ test("评审 prompt 里不含提案 rationale", async () => {
     evolutionDir: "/repo/.pi/evolution",
     readText: fs.readText,
     writeText: fs.writeText,
+    mkdirText: fs.mkdirText,
     ...(spawnFn ? { spawnFn } : {}),
     pollMs: 1,
   });
@@ -125,6 +129,7 @@ test("提案永不出现：900s 后写 skipped/proposal-timeout", async () => {
     evolutionDir: "/repo/.pi/evolution",
     readText: fs.readText,
     writeText: fs.writeText,
+    mkdirText: fs.mkdirText,
     now: clock.now,
     sleep: clock.sleep,
     pollMs: 2000,
@@ -144,6 +149,7 @@ test("提案文件是坏 JSON：skipped/proposal-unreadable", async () => {
     evolutionDir: "/repo/.pi/evolution",
     readText: fs.readText,
     writeText: fs.writeText,
+    mkdirText: fs.mkdirText,
     now: clock.now,
     sleep: clock.sleep,
   });
@@ -159,6 +165,7 @@ test("评审进程超时 300s → review_failed 且 kill 被调用", async () =>
     evolutionDir: "/repo/.pi/evolution",
     readText: fs.readText,
     writeText: fs.writeText,
+    mkdirText: fs.mkdirText,
     spawnFn: hangingReviewSpawn(),
     now: clock.now,
     sleep: clock.sleep,
@@ -176,6 +183,7 @@ test("invalid 一次后重评成功：attempts=2 且 reviewed", async () => {
     evolutionDir: "/repo/.pi/evolution",
     readText: fs.readText,
     writeText: fs.writeText,
+    mkdirText: fs.mkdirText,
     spawnFn: fakeReviewSpawn([JSON.stringify({ verdict: "maybe", blocking: [] }), PASS]),
     pollMs: 1,
   });
@@ -191,6 +199,7 @@ test("两次都 invalid → review_failed，run.json 也是 review_failed", asyn
     evolutionDir: "/repo/.pi/evolution",
     readText: fs.readText,
     writeText: fs.writeText,
+    mkdirText: fs.mkdirText,
     spawnFn: fakeReviewSpawn([bad, bad]),
     pollMs: 1,
   });
@@ -215,6 +224,7 @@ test("机械复验：diff 新增 P0 命中时一票 reject（即使评审说 pas
     rules: RULES,
     readText: fs.readText,
     writeText: fs.writeText,
+    mkdirText: fs.mkdirText,
     spawnFn: fakeReviewSpawn([PASS]),
     pollMs: 1,
     maxRewrites: 0,
@@ -237,6 +247,7 @@ test("create 提案：candidate frontmatter 缺 description → reject", async (
     rules: RULES,
     readText: fs.readText,
     writeText: fs.writeText,
+    mkdirText: fs.mkdirText,
     spawnFn: fakeReviewSpawn([PASS]),
     pollMs: 1,
     maxRewrites: 0,
@@ -296,6 +307,7 @@ test("评审 reject → 自动重写一次提案，第二版通过即 reviewed�
     rules: RULES,
     readText: fs.readText,
     writeText: fs.writeText,
+    mkdirText: fs.mkdirText,
     spawnFn: fakeReviewSpawn([REJECT, PASS]),
     rewriteSpawnFn: rewrite.spawn,
     pollMs: 1,
@@ -318,6 +330,7 @@ test("三次重写都不通过 → 用满 3 次后判 rejected（评审 4 次）
     rules: RULES,
     readText: fs.readText,
     writeText: fs.writeText,
+    mkdirText: fs.mkdirText,
     spawnFn: fakeReviewSpawn([REJECT]),
     rewriteSpawnFn: rewrite.spawn,
     pollMs: 1,
@@ -341,6 +354,7 @@ test("重写没写出新提案 → 立刻按当前结论收尾，不再空等", 
     rules: RULES,
     readText: fs.readText,
     writeText: fs.writeText,
+    mkdirText: fs.mkdirText,
     spawnFn: fakeReviewSpawn([REJECT]),
     rewriteSpawnFn: spawn,
     pollMs: 1,

@@ -121,7 +121,7 @@ test("徽章文案：待评审 / 待入队 / 卡死 三者不同", () => {
   );
 });
 
-test("只有卡死与待审批需要人动手", () => {
+test("需要人动手的是：待评审（督导没接上，要重试）、卡死、待审批", () => {
   const rows = pendingRows(
     [
       { runId: "a", kind: "to-review", session: NO_SESSION, skill: "", at: null, detail: "" },
@@ -133,7 +133,7 @@ test("只有卡死与待审批需要人动手", () => {
   );
   assert.deepEqual(
     rows.map((row) => row.needsAction === true),
-    [false, false, true, true],
+    [true, false, true, true],
   );
 });
 
@@ -154,4 +154,15 @@ test("排序：卡死排在待评审之前（失败优先于排队）", () => {
     ["c", "a"],
   );
   assert.equal(summaryOf("x", "stale").status, "stale");
+});
+
+test("待评审行：可写实例给「重试评审」，只读实例不给", () => {
+  const item = { runId: "run-stuck", kind: "to-review" as const, session: NO_SESSION, skill: "codegraph", at: null, detail: "" };
+  const writable = pendingRows([item], { sessionId: null, active: false, writable: true, csrf: "tok", view: "pending" } as never);
+  assert.match(writable[0]!.ops, /action="\/action"/);
+  assert.match(writable[0]!.ops, /value="review"/);
+  assert.match(writable[0]!.ops, /重试评审/);
+
+  const readonly = pendingRows([item], { sessionId: null, active: false } as never);
+  assert.equal(readonly[0]!.ops.includes("重试评审"), false);
 });
