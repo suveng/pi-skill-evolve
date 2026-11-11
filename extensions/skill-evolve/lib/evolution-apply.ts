@@ -13,7 +13,16 @@ import { readProposalMeta } from "./apply-targets.ts";
 import { classifyChange } from "./classify-action.ts";
 import { captureGate0, saveGate0, type GitRunner } from "./gate0.ts";
 import { buildPrunePlan, renderPrunePlan } from "./prune-plan.ts";
-import { enqueue, findItem, markDone, readQueue, takePending, type QueueItem, type QueueStatus } from "./queue.ts";
+import {
+  enqueue,
+  findItem,
+  markDone,
+  readQueue,
+  replacePending,
+  takePending,
+  type QueueItem,
+  type QueueStatus,
+} from "./queue.ts";
 import { withLock } from "./lock.ts";
 import { logLine } from "./logfile.ts";
 import { updateRunStatus } from "./runs.ts";
@@ -46,6 +55,8 @@ export interface ApplyTools {
   approve(runId: string, prune: boolean): Promise<string>;
   /** 拒绝一条待批提案：只改队列与 run.json 状态，不动任何技能文件 */
   reject(runId: string): Promise<string>;
+  /** 把「被更早 pending 顶掉」的那份换成真正要落的这份（旧的让位，不动技能文件） */
+  replaceSuperseded(runId: string): Promise<string>;
   queueText(): string;
   /** 供测试与内部复用：返回实际应用成功的条数 */
   autoApplyPending(): Promise<number>;
@@ -296,6 +307,14 @@ export function createApplyTools(deps: ApplyToolsDeps): ApplyTools {
     return `已拒绝 ${runId}（${item.level} · ${item.skill}）${tail}：技能文件未改动`;
   };
 
+  const replaceSuperseded: ApplyTools["replaceSuperseded"] = async (runId) => {
+    if (!runId) return "用法：/skill-evolve replace <runId>";
+    const outcome = await replacePending(queueDeps, runId);
+    if (!outcome.ok) return `替换未完成 ${runId}：${outcome.detail}`;
+    log(`[skill-evolve] 替换：${outcome.replaced} 让位，${runId} 重新 pending`);
+    return `已用 ${runId} 替换 ${outcome.replaced}：旧条目转为 superseded，新条目回到 pending`;
+  };
+
   const queueText: ApplyTools["queueText"] = () => {
     const items = readQueue(deps.evolutionDir);
     if (items.length === 0) return `采纳队列为空：${path.join(deps.evolutionDir, "queue.json")}（评审通过后自动入队）`;
@@ -315,5 +334,14 @@ export function createApplyTools(deps: ApplyToolsDeps): ApplyTools {
     return lines.join("\n");
   };
 
-  return { sessionStart, settle: scanAndApply, approve, reject, queueText, autoApplyPending, enqueueReady };
+  return {
+    sessionStart,
+    settle: scanAndApply,
+    approve,
+    reject,
+    replaceSuperseded,
+    queueText,
+    autoApplyPending,
+    enqueueReady,
+  };
 }

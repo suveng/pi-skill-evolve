@@ -88,7 +88,7 @@ function rowsOf(page: ViewPage, ctx: RowContext): ListRow[] {
     case "applied":
       return appliedRows(page.rows);
     case "done":
-      return doneRows(page.rows);
+      return doneRows(page.rows, ctx);
   }
 }
 

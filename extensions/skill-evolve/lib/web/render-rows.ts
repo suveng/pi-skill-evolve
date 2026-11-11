@@ -147,7 +147,7 @@ export function pendingRows(items: readonly PendingItem[], ctx: RowContext): Lis
 /** 已处理：终态各一色；被拒绝是暗红（是结论，不是故障），失败才标题红色
  * 键必须与 run.json / 队列里的 status 一字不差：抄错一个字符（比如 rolledback）徽章就永远匹配不上，
  * 页面上会回落到淡灰 + 原始英文，而不是中文文案。 */
-export function doneRows(items: readonly DoneItem[]): ListRow[] {
+export function doneRows(items: readonly DoneItem[], ctx?: RowContext): ListRow[] {
   const tone: Record<string, { text: string; tone: BadgeTone }> = {
     applied: { text: "已采纳", tone: "green" },
     rejected: { text: "已拒绝", tone: "darkred" },
@@ -168,10 +168,25 @@ export function doneRows(items: readonly DoneItem[]): ListRow[] {
     skill: item.skill,
     delta: null,
     session: item.session,
-    ops: archiveOps(item.runId),
+    ops: supersededOps(item, ctx),
     needsAction: false,
     ...chainBits(item.status),
   }));
+}
+
+/**
+ * 已结束行的操作：普通终态只给详情；**被顶掉的**多一个「换成这份」——
+ * 原来只能看到 superseded 徽章，既不知道为什么被顶、也没法改主意（2026-11-11 用户实测追问）。
+ */
+function supersededOps(item: DoneItem, ctx: RowContext | undefined): string {
+  const base = archiveOps(item.runId);
+  if (item.status !== "superseded" || !ctx?.writable) return base;
+  const form = `<form method="post" action="/replace">
+<input type="hidden" name="csrf" value="${escapeHtml(ctx.csrf)}">
+<input type="hidden" name="runId" value="${escapeHtml(item.runId)}">
+<button type="submit" title="旧的待落盘条目让位，改为等这份">换成这份</button>
+</form>`;
+  return `${form} · ${base}`;
 }
 
 /** 五闸一句话：没记录时写「无记录」而不是「失败」（判不了 ≠ 没过） */

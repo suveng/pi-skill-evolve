@@ -48,6 +48,8 @@ export interface WriteHooks {
   onCleanup?: WebAction;
   /** 配置页保存：六项校验在 web 层，写盘与归一化走 evo.setSettings */
   onSettings?: SettingsHook;
+  /** 换成这份：把被更早 pending 顶掉的条目换回来（只动队列，不碰技能文件） */
+  onReplace?: WebAction;
 }
 
 export interface WriteContext extends WriteHooks {
@@ -57,7 +59,7 @@ export interface WriteContext extends WriteHooks {
   port(): number;
 }
 
-const POST_PATHS = new Set(["/approve", "/reject", "/action", "/toggle", "/config"]);
+const POST_PATHS = new Set(["/approve", "/reject", "/replace", "/action", "/toggle", "/config"]);
 /** 与 lib/report.ts 的 renderManualDispatch 首行对齐：能派发才是 ok，其余都是 partial */
 const DISPATCHED_PREFIX = "已派生复盘：";
 /** `child.log` 优先，其次 `supervisor.log`：前者是子进程自己的输出，会话细节都在里面 */
@@ -259,7 +261,11 @@ export async function handlePost(
 ): Promise<void> {
   if (!POST_PATHS.has(url.pathname)) {
     response.setHeader("allow", "GET");
-    sendText(response, 405, "405：面板只提供 GET，写操作只有 /approve、/reject、/action、/toggle?field= 与 /config\n");
+    sendText(
+      response,
+      405,
+      "405：面板只提供 GET，写操作只有 /approve、/reject、/replace、/action、/toggle?field= 与 /config\n",
+    );
     return;
   }
   const type = String(request.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
@@ -295,6 +301,17 @@ export async function handlePost(
   if (url.pathname === "/action") {
     // 回跳页由表单里的 view 决定：控制条动作用户在哪一页点的，就回哪一页
     await handleNamedAction(ctx, response, form, parseRedirectView(form.get("view")));
+    return;
+  }
+  if (url.pathname === "/replace") {
+    const replace = ctx.onReplace;
+    if (!replace) return rejectReadOnly(response);
+    const runId = (form.get("runId") ?? "").trim();
+    if (runId.length === 0) {
+      reject(ctx, response, "replace", "缺少 runId");
+      return;
+    }
+    await settle(ctx, response, "replace", "done", () => replace(runId), { runId });
     return;
   }
   const action: AuditAction = url.pathname === "/approve" ? "approve" : "reject";

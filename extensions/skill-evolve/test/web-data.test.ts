@@ -356,3 +356,17 @@ test("collectControls：四个开关各读各的字段（采集关、复盘开�
   assert.equal(controls.pendingAuto, 0, "队列空时没有待人工的 auto 条");
   assert.equal(controls.lastActivityAt, null, "没有任何遥测 / run 时最后活动为 null，不编造时间");
 });
+
+test("已结束：被顶掉的条目写清「被哪条顶掉」，并带 supersededBy 供面板给「换成这份」", () => {
+  const evolutionDir = workspace();
+  writeQueue(evolutionDir, [
+    item("run-old", { level: "approval", createdAt: NOW }),
+    item("run-new", { level: "approval", createdAt: NOW + 1_000, status: "superseded", supersededBy: "run-old" }),
+  ]);
+  const state = collectWebState({ evolutionDir });
+  const row = state.done.find((entry) => entry.runId === "run-new");
+  assert.ok(row, "被顶掉的要出现在已结束里");
+  assert.equal(row.supersededBy, "run-old");
+  assert.match(row.detail, /同一技能已有更早的待落盘提案 run-old/);
+  assert.match(row.detail, /换成这份/);
+});

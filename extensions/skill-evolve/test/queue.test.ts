@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { enqueue, findItem, markDone, queueFile, readQueue, takePending } from "../lib/queue.ts";
+import { enqueue, findItem, markDone, queueFile, readQueue, replacePending, takePending } from "../lib/queue.ts";
 import { directQueue } from "../lib/telemetry.ts";
 
 const NOW = 1_760_000_000_000;
@@ -107,4 +107,33 @@ test("损坏文件容错：坏 JSON 当空队列，单条非法字段只丢那�
   const result = await enqueue(deps(dir), input("run-new", { skill: "other" }));
   assert.equal(result.item.status, "pending");
   assert.deepEqual(readQueue(dir).map((item) => item.runId).sort(), ["ok", "run-new"]);
+});
+
+test("replacePending：被顶掉的那份换回 pending，旧 pending 让位并记下被谁取代", async () => {
+  const dir = tempEvolutionDir();
+  await enqueue(deps(dir, NOW), input("run-old"));
+  const second = await enqueue(deps(dir, NOW + 1_000), input("run-new"));
+  assert.equal(second.item.status, "superseded");
+  assert.equal(second.supersededBy, "run-old", "入队时要把顶掉它的那条一起写进队列（面板靠它解释）");
+
+  const outcome = await replacePending(deps(dir, NOW + 2_000), "run-new");
+  assert.deepEqual(outcome, { ok: true, replaced: "run-old" });
+  const items = readQueue(dir);
+  assert.equal(findItem(items, "run-new")?.status, "pending");
+  assert.equal(findItem(items, "run-new")?.supersededBy, undefined, "换成这份后不该再带旧关系");
+  assert.equal(findItem(items, "run-old")?.status, "superseded", "旧的让位，不是删除");
+  assert.match(findItem(items, "run-old")?.detail ?? "", /run-new/);
+  assert.deepEqual(takePending(items).map((item) => item.runId), ["run-new"]);
+});
+
+test("replacePending：只有 superseded 能换；找不到旧条目时明确报错不硬改", async () => {
+  const dir = tempEvolutionDir();
+  await enqueue(deps(dir), input("run-1"));
+  const notSuper = await replacePending(deps(dir), "run-1");
+  assert.equal(notSuper.ok, false);
+  assert.match(notSuper.ok === false ? notSuper.detail : "", /只有 superseded 能替换/);
+
+  const missing = await replacePending(deps(dir), "run-404");
+  assert.equal(missing.ok, false);
+  assert.match(missing.ok === false ? missing.detail : "", /队列里没有/);
 });

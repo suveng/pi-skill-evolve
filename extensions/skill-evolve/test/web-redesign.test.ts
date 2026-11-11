@@ -285,3 +285,25 @@ test("状态链：每行状态格里有五段链与「下一步」，不点进�
   assert.match(approvals, /<span class="c-waiting" title="采纳">采纳·<\/span>/);
   assert.match(approvals, /<div class="next-line">待落盘点批准<\/div>/);
 });
+
+test("已结束行：被顶掉的那条在可写实例给「换成这份」，只读实例不给", () => {
+  const withReplace = emptyState();
+  withReplace.done.push({
+    ...doneItem("run-old", "superseded", T_LATE),
+    skill: "codegraph",
+    detail: "同一技能已有更早的待落盘提案 run-older，本份被顶掉（要换成就点「换成这份」）",
+    supersededBy: "run-older",
+  });
+  const writable = renderPage(withReplace, "done", { canWrite: true, csrf: "tok-1", now: NOW });
+  assert.match(writable, /<form method="post" action="\/replace">/);
+  assert.match(writable, /name="runId" value="run-old"/);
+  assert.match(writable, /换成这份/);
+
+  const readonly = renderPage(withReplace, "done", { now: NOW });
+  assert.equal(readonly.includes('action="/replace"'), false, "只读实例不渲染会 403 的表单");
+
+  const plain = emptyState();
+  plain.done.push(doneItem("run-x", "rejected", T_LATE));
+  const noButton = renderPage(plain, "done", { canWrite: true, csrf: "tok-1", now: NOW });
+  assert.equal(noButton.includes("换成这份"), false, "只有 superseded 才该有这个按钮");
+});

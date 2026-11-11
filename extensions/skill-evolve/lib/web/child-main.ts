@@ -67,7 +67,10 @@ export function parseChildConfig(raw: string | undefined): WebChildConfig {
   return { cwd, port: port as number, version, promptTemplate };
 }
 
-/** 起面板并挂好六个写操作；返回关闭函数，供信号处理用 */
+/** 面板进程补扫队列的间隔：30 秒足够快，也不至于每次都去抢 apply 锁 */
+export const ENQUEUE_TICK_MS = 30_000;
+
+/** 起面板并挂好写操作；返回关闭函数，供信号处理用 */
 export async function runChild(config: WebChildConfig): Promise<{ url: string; close: () => Promise<void> }> {
   const evolutionDir = path.join(config.cwd, ".pi", "evolution");
   const log = (msg: string): void => logLine(evolutionDir, msg);
@@ -87,6 +90,7 @@ export async function runChild(config: WebChildConfig): Promise<{ url: string; c
     onRunNow: () => evo.runNow({ sessionId: "web-panel" }),
     onCleanup: (runId) => moveRunToTrash(evolutionDir, runId),
     onSettings: (patch) => evo.setSettings(patch),
+    onReplace: (runId) => evo.apply.replaceSuperseded(runId),
   });
   if (!result.ok) throw new Error(`${result.code}：${result.message}`);
   const panel = result.panel;
@@ -96,7 +100,24 @@ export async function runChild(config: WebChildConfig): Promise<{ url: string; c
     log,
   );
   log(`[skill-evolve] 面板独立进程已起：${panel.url}（pid ${process.pid}，v${config.version}）`);
-  return { url: panel.url, close: () => panel.close() };
+  // 每 30 秒补扫一次队列：督导写完 03-review.json 后不必等下一轮会话 settle。
+  // 实测 2026-11-11 从评审完成到入队拖了 20 分钟（会话一直没 settle）。
+  // settle 内部走 locks/apply 文件锁，与 pi 主进程同时在扫也不会重复入队。
+  const tick = setInterval(() => {
+    try {
+      evo.apply.settle();
+    } catch (error) {
+      log(`[skill-evolve] 面板补扫队列失败：${String(error)}`);
+    }
+  }, ENQUEUE_TICK_MS);
+  tick.unref();
+  return {
+    url: panel.url,
+    close: async () => {
+      clearInterval(tick);
+      await panel.close();
+    },
+  };
 }
 
 // 直接跑（`node lib/web/child-main.ts`）时才进入进程体；被单测 import 时什么都不做

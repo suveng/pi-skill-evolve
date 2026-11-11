@@ -219,6 +219,41 @@ test("POST /approve：csrf 正确 → onApprove 恰一次，303 回待审批页�
   }
 });
 
+test("POST /replace：换成这份 → onReplace 恰一次，303 回已结束页带 msg", async () => {
+  const replace = spy("已用 run-new 替换 run-old（approval · demo）");
+  const panel = await open(workspace(), 0, { onReplace: replace.fn });
+  try {
+    const response = await post(panel, "/replace", { csrf: panel.csrf, runId: "run-new" });
+    assert.equal(response.status, 303);
+    const location = new URL(response.headers.get("location") ?? "", panel.url);
+    assert.equal(location.searchParams.get("view"), "done");
+    assert.match(location.searchParams.get("msg") ?? "", /已用 run-new 替换 run-old/);
+    assert.deepEqual(replace.calls, ["run-new"]);
+  } finally {
+    await panel.close();
+  }
+});
+
+test("POST /replace：没注入回调 → 403（不是 405），runId 缺了就 400", async () => {
+  const noHook = await open(workspace(), 0, {});
+  try {
+    const response = await post(noHook, "/replace", { csrf: noHook.csrf, runId: "run-new" });
+    assert.equal(response.status, 403);
+    assert.equal(response.headers.get("allow") === "GET", false, "路径本身合法，不该回 405");
+  } finally {
+    await noHook.close();
+  }
+  const replace = spy();
+  const panel = await open(workspace(), 0, { onReplace: replace.fn });
+  try {
+    const response = await post(panel, "/replace", { csrf: panel.csrf });
+    assert.equal(response.status, 400);
+    assert.deepEqual(replace.calls, []);
+  } finally {
+    await panel.close();
+  }
+});
+
 test("POST /approve：csrf 不对 → 403，onApprove 一次都没被调", async () => {
   const approve = spy();
   const panel = await open(workspace(), 0, { onApprove: approve.fn, onReject: spy().fn });

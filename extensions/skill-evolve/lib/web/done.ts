@@ -25,6 +25,8 @@ export interface DoneItem {
   skill: string;
   at: number | null;
   detail: string;
+  /** superseded 才有：被哪条更早的 pending 顶掉（面板据此给「换成这份」按钮） */
+  supersededBy?: string;
 }
 
 /**
@@ -97,7 +99,11 @@ export function buildDone(
       level: item.level,
       skill: item.skill,
       at: asNumber(item.createdAt),
-      detail: item.detail ?? "",
+      detail:
+        item.status === "superseded"
+          ? `同一技能已有更早的待落盘提案${item.supersededBy ? ` ${item.supersededBy}` : ""}，本份被顶掉（要换成就点「换成这份」）`
+          : (item.detail ?? ""),
+      ...(item.supersededBy === undefined ? {} : { supersededBy: item.supersededBy }),
     });
   }
   return [...byRun.values()].sort((a, b) => (b.at ?? 0) - (a.at ?? 0)).slice(0, DONE_LIMIT);

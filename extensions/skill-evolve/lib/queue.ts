@@ -25,6 +25,8 @@ export interface QueueItem {
   status: QueueStatus;
   proposalType?: string;
   detail?: string;
+  /** 被哪条更早的 pending 顶掉（superseded 专用）：面板据此给「换成这份」的按钮 */
+  supersededBy?: string;
   /** 自动评审关着时入队的条目：run 没有 03-review.json，等人工 `/skill-evolve approve`（待落盘页可见） */
   reviewSkipped?: boolean;
 }
@@ -96,7 +98,7 @@ export async function enqueue(
       ...input,
       createdAt: now(),
       status: older ? "superseded" : "pending",
-      ...(older ? { detail: `同一技能已有更早的 pending：${older.runId}` } : {}),
+      ...(older ? { detail: `同一技能已有更早的 pending：${older.runId}`, supersededBy: older.runId } : {}),
     };
     items.push(item);
     writeJson(deps.evolutionDir, items);
@@ -115,6 +117,45 @@ export function takePending(items: readonly QueueItem[], level?: ActionLevel): Q
 
 export function findItem(items: readonly QueueItem[], runId: string): QueueItem | undefined {
   return items.find((item) => item.runId === runId);
+}
+
+/** 把被顶掉的条目换成真正生效的那份：旧 pending 让位，新条目接管 */
+export async function replacePending(
+  deps: QueueDeps,
+  newRunId: string,
+): Promise<{ ok: true; replaced: string } | { ok: false; detail: string }> {
+  let result: { ok: true; replaced: string } | { ok: false; detail: string } = {
+    ok: false,
+    detail: "队列写回调未返回结果",
+  };
+  await deps.queue(queueFile(deps.evolutionDir), async () => {
+    const items = readQueue(deps.evolutionDir);
+    const fresh = items.find((item) => item.runId === newRunId);
+    if (!fresh) {
+      result = { ok: false, detail: `队列里没有 ${newRunId}` };
+      return;
+    }
+    if (fresh.status !== "superseded") {
+      result = { ok: false, detail: `${newRunId} 当前是 ${fresh.status}，只有 superseded 能替换` };
+      return;
+    }
+    const older =
+      items.find((item) => item.runId === fresh.supersededBy) ??
+      items.find((item) => item.runId !== fresh.runId && item.status === "pending" && item.skill === fresh.skill);
+    if (!older) {
+      result = { ok: false, detail: `找不到被顶掉的 ${fresh.supersededBy ?? "旧条目"}（可能已被处理）` };
+      return;
+    }
+    older.status = "superseded";
+    older.detail = `被更新的提案 ${newRunId} 取代`;
+    older.supersededBy = newRunId;
+    fresh.status = "pending";
+    delete fresh.supersededBy;
+    delete fresh.detail;
+    writeJson(deps.evolutionDir, items);
+    result = { ok: true, replaced: older.runId };
+  });
+  return result;
 }
 
 /** 改某条状态；返回是否找到了该 runId（命令据此区分「没有这条」与「已处理」） */
