@@ -43,14 +43,14 @@ test("description 续行（缩进 ≥2）与纯空白改动仍算 auto", () => {
   assert.equal(result.level, "auto");
 });
 
-test("路径越界（技能目录下的非 SKILL.md）→ forbidden", () => {
+test("技能目录下的附属文件（notes.md）不再是越界：允许改，但要人批", () => {
   const result = classifyChange({
     diffText: diff(".pi/skills/deploy-test/notes.md", "-旧\n+新"),
     proposalType: "improve",
     skill: "deploy-test",
   });
-  assert.equal(result.level, "forbidden");
-  assert.match(result.reasons[0] ?? "", /路径越界/);
+  assert.equal(result.level, "approval");
+  assert.equal(result.reasons[0]?.includes("附属文件"), true);
 });
 
 test("删除技能文件（+++ /dev/null）→ forbidden", () => {
@@ -130,4 +130,42 @@ test("classifyAction 兼容旧调用面（只看级别）", () => {
   assert.equal(classifyAction(diff(SKILL, "-description: 旧\n+description: 新"), "improve"), "auto");
   assert.equal(classifyAction(diff(SKILL, "-正文\n+正文2"), "improve"), "auto");
   assert.equal(classifyAction(diff(SKILL, "-a\n+b"), "prune"), "forbidden");
+});
+
+test("references 与 scripts 允许改，但要人批（2026-11-14 用户口径：附属文件也要能进化）", () => {
+  const ref = classifyChange({
+    diffText: diff(".pi/skills/deploy-test/references/checklist.md", "-旧清单\n+新清单"),
+    proposalType: "improve",
+    skill: "deploy-test",
+  });
+  assert.equal(ref.level, "approval");
+  assert.equal(ref.reasons[0]?.includes("references"), true);
+
+  const script = classifyChange({
+    diffText: diff(".pi/skills/deploy-test/scripts/deploy.sh", "-old\n+new"),
+    proposalType: "improve",
+    skill: "deploy-test",
+  });
+  assert.equal(script.level, "approval");
+
+  // 技能目录里新建一个参考文件也允许（仍然人批）
+  const created = classifyChange({
+    diffText: diff(".pi/skills/deploy-test/references/new.md", "+# 新参考", "/dev/null", true),
+    proposalType: "improve",
+    skill: "deploy-test",
+  });
+  assert.equal(created.level, "approval");
+});
+
+test("技能目录之外仍然越界：`..`、绝对路径、别的技能树一律 forbidden", () => {
+  for (const path of [
+    ".pi/skills/../secrets.md",
+    ".pi/skills/a/../../etc/passwd",
+    "rust_server/src/x.rs",
+    ".pi/evolution/config.json",
+    ".pi/skills/.hidden/x.md",
+  ]) {
+    const verdict = classifyChange({ diffText: diff(path, "-a\n+b"), proposalType: "improve", skill: "a" });
+    assert.equal(verdict.level, "forbidden", path);
+  }
 });

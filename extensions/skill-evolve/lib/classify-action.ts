@@ -33,7 +33,11 @@ export interface DiffSection {
 }
 
 /** 允许被采纳路径的白名单：路径本身就是授权边界，白名单外一律 forbidden */
-const ALLOWED_PATH = /^(?:\.pi\/skills\/[^/]+\/SKILL\.md|\.cursor\/skills\/[^/]+\/SKILL\.md|(?:\.pi\/)?AGENTS\.md)$/;
+// 2026-11-14 用户口径「skill 的说明、正文、references、scripts 都要能进化」：
+// 技能目录下的任何文件都算可改目标（SKILL.md / references/* / scripts/* / 其它资源），
+// 但路径本身必须是「技能目录里的一层真实文件」—— 禁 `..`、禁绝对路径、禁藏文件。
+const SKILL_ASSET_PATH = /^(?:\.pi|\.cursor)\/skills\/(?!\.)[^/]+\/(?!\.)[\w.-]+(?:\/[\w.-]+)*$/;
+const ALLOWED_PATH = /^(?:(?:\.pi|\.cursor)\/skills\/[^/]+\/SKILL\.md|(?:\.pi\/)?AGENTS\.md)$/;
 const SKILL_FILE = /^(?:\.pi|\.cursor)\/skills\/[^/]+\/SKILL\.md$/;
 const CURSOR_STUB = /^\.cursor\/skills\/[^/]+\/SKILL\.md$/;
 const AGENTS_FILE = /(?:^|\/)AGENTS\.md$/;
@@ -109,7 +113,8 @@ export function classifyChange(input: ClassifyInput): ClassifyResult {
   for (const section of sections) {
     if (section.deleted) return deny(`删除文件：${section.path || "(未知路径)"}`);
     if (section.path.includes(PROTECTED_PATH)) return deny(`改动插件自身：${section.path}`);
-    if (!ALLOWED_PATH.test(section.path)) return deny(`路径越界：${section.path || "(未知路径)"}`);
+    const inSkillDir = SKILL_ASSET_PATH.test(section.path) && !section.path.split("/").includes("..");
+    if (!ALLOWED_PATH.test(section.path) && !inSkillDir) return deny(`路径越界：${section.path || "(未知路径)"}`);
     for (const line of section.lines) {
       // 只看增删行：上下文行里出现 `name:` 不是「改动字段」，否则任何挨着 frontmatter 的提案都会被误判 forbidden
       if (line.sign === " " || line.text.trim().length === 0) continue;
@@ -128,6 +133,8 @@ export function classifyChange(input: ClassifyInput): ClassifyResult {
     if (AGENTS_FILE.test(section.path)) {
       return section.lines.every((line) => line.sign === " " || line.text.trim().length === 0 || INDEX_ROW.test(line.text));
     }
+    // 技能目录里的 references / scripts 等附属文件：允许改，但要人看一眼再落盘。
+    // 脚本会被执行、参考文件会改变行为边界，自动采纳的收益远小于「悄悄改了脚本」的风险。
     if (!SKILL_FILE.test(section.path)) return false;
     // 正文与 description 同等对待：2026-11-11 用户口径「正文也可以改，也可以自动采纳」。
     // 语义字段（name / allowed-tools / disable-model-invocation）已在上面按行判过 forbidden，这里不必再拦。
@@ -140,7 +147,7 @@ export function classifyChange(input: ClassifyInput): ClassifyResult {
     const offender = sections.find((section) => !sectionAuto(section));
     return {
       level: "approval",
-      reasons: [`新增技能文件 / 改动超出技能文件（${offender?.path ?? "未知路径"}）`],
+      reasons: [`需要人批：新增技能文件 / 改到 references、scripts 等附属文件（${offender?.path ?? "未知路径"}）`],
       targets,
     };
   }

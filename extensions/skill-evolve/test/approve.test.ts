@@ -155,7 +155,8 @@ test("正文改动 → auto 级入队（2026-11-11 起正文也可以自动采�
 
 test("路径越界的 run 判 forbidden：不入队并记日志", async () => {
   const fixture = setup();
-  const badDiff = `--- a/.pi/skills/demo/notes.md\n+++ b/.pi/skills/demo/notes.md\n@@ -1,1 +1,1 @@\n-旧\n+新\n`;
+  // 技能目录里的 notes.md 现在是「允许但要人批」，所以越界样本改用技能目录之外的文件
+  const badDiff = `--- a/rust_server/src/main.rs\n+++ b/rust_server/src/main.rs\n@@ -1,1 +1,1 @@\n-旧\n+新\n`;
   seedRun(fixture, "run-bad", "reviewed", badDiff);
   const logs: string[] = [];
   const added = await tools(fixture, { log: (msg) => logs.push(msg) }).enqueueReady();
