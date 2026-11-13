@@ -12,7 +12,7 @@ import * as path from "node:path";
 import { APPLIED_DIFF_FILE, VERIFY_FILE, appliedDiffFile, applyRun, readVerify, verifyFile } from "../lib/apply.ts";
 import type { GateDeps } from "../lib/apply-gates.ts";
 import { backupDir, cleanupBackups, runGates } from "../lib/apply-gates.ts";
-import { planTargets } from "../lib/apply-targets.ts";
+import { planTargets, readProposalMeta } from "../lib/apply-targets.ts";
 import { saveGate0 } from "../lib/gate0.ts";
 import type { QueueItem } from "../lib/queue.ts";
 import { directQueue } from "../lib/telemetry.ts";
@@ -293,4 +293,54 @@ test("runGates 闸2 前会复核磁盘内容：中途被改过就拒写，不给
   assert.equal(run.ok, false);
   assert.match(run.detail ?? "", /磁盘内容与计划不一致/);
   assert.equal(fs.readFileSync(fixture.skillAbs, "utf8").includes("并发编辑"), true);
+});
+
+test("一份提案可以覆盖多个技能：skills 列出全部，diff 每段各写一个文件", () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "skill-multi-"));
+  const runDir = path.join(cwd, "run");
+  fs.mkdirSync(path.join(cwd, ".pi", "skills", "a"), { recursive: true });
+  fs.mkdirSync(path.join(cwd, ".pi", "skills", "b"), { recursive: true });
+  fs.mkdirSync(runDir, { recursive: true });
+  const body = (name: string): string => `---\nname: ${name}\ndescription: 旧\n---\n\n## 步骤\n1. 旧步骤\n`;
+  fs.writeFileSync(path.join(cwd, ".pi", "skills", "a", "SKILL.md"), body("a"), "utf8");
+  fs.writeFileSync(path.join(cwd, ".pi", "skills", "b", "SKILL.md"), body("b"), "utf8");
+  fs.writeFileSync(path.join(runDir, "02-proposal.json"), JSON.stringify({
+    type: "improve",
+    skill: "a",
+    skills: ["a", "b"],
+    rationale: "两个技能都缺步骤",
+    evidence: [1, 2],
+    diffFile: "02-proposal.diff",
+  }), "utf8");
+  fs.writeFileSync(path.join(runDir, "02-proposal.diff"), [
+    "--- a/.pi/skills/a/SKILL.md",
+    "+++ b/.pi/skills/a/SKILL.md",
+    "@@ -3,1 +3,1 @@",
+    "-description: 旧",
+    "+description: 新",
+    "--- a/.pi/skills/b/SKILL.md",
+    "+++ b/.pi/skills/b/SKILL.md",
+    "@@ -3,1 +3,1 @@",
+    "-description: 旧",
+    "+description: 新",
+    "",
+  ].join("\n"), "utf8");
+
+  const meta = readProposalMeta(runDir);
+  assert.ok(meta);
+  assert.deepEqual(meta.skills, ["a", "b"]);
+  assert.equal(meta.skill, "a");
+
+  const plan = planTargets(runDir, cwd);
+  assert.equal(plan.ok, true);
+  assert.deepEqual(plan.targets.map((t) => t.path), [".pi/skills/a/SKILL.md", ".pi/skills/b/SKILL.md"]);
+  assert.equal(plan.targets[1].after.includes("description: 新"), true);
+});
+
+test("老提案只写 skill、没有 skills 时，skills 退化成 [skill]", () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "skill-legacy-"));
+  fs.writeFileSync(path.join(cwd, "02-proposal.json"), JSON.stringify({ type: "improve", skill: "only", diffFile: "02-proposal.diff" }), "utf8");
+  const meta = readProposalMeta(cwd);
+  assert.ok(meta);
+  assert.deepEqual(meta.skills, ["only"]);
 });

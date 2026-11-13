@@ -17,7 +17,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { DEFAULT_CONFIG, type EvolutionConfig } from "../lib/config.ts";
-import { createDispatcher, shouldDebounce } from "../lib/dispatch.ts";
+import { createDispatcher, idleRemaining, shouldDebounce } from "../lib/dispatch.ts";
 import { acquireLock, releaseLock } from "../lib/lock.ts";
 import { buildPrompt } from "../lib/prompt.ts";
 import { DEFAULT_PI_BIN, resolvePiBin, runIdFor, sessionHashOf, type SpawnedChild, type SpawnLike } from "../lib/spawn-plan.ts";
@@ -161,6 +161,7 @@ test("dispatch 成功：spawn 参数、env、run.json、会话索引都到位", 
     JSON.stringify({ type: "message", timestamp: NOW + i, message: { role: "user", content: [{ type: "text", text: `第 ${i + 1} 轮` }] } }))
     .join("\n");
   fs.writeFileSync(sessionFile, `${JSON.stringify({ type: "session", id: "sess-1", cwd: h.dir })}\n${turns}\n`, "utf8");
+  ageFile(sessionFile, NOW);
 
   const outcome = await h.dispatch({ sessionId: "sess-1", skills: ["a"], sessionFile });
   assert.equal(outcome.status, "dispatched");
@@ -341,4 +342,39 @@ test("轮次门槛：用户消息 ≤ 5 条不派发（不起子进程，只记 
   assert.equal(outcome.why, "too-few-turns");
   assert.equal(h.calls.length, 0, "不够轮次时一个子进程都不该起");
   assert.equal(h.events.some((event) => event.kind === "skipped" && (event as { why?: string }).why === "too-few-turns"), true);
+});
+
+/** 把会话文件 mtime 拨回「静默已经够了」的时刻，避免真实写入时间把静默闸门误触发 */
+function ageFile(file: string, nowMs: number, agoMs = 3_600_000): void {
+  const when = new Date(nowMs - agoMs);
+  fs.utimesSync(file, when, when);
+}
+
+test("静默窗口未满：不派发，攒进 pending，到点由定时器补发一次", async () => {
+  // idleMs 取 300ms 是为了让真定时器在测试里跑得完；生产默认 10 分钟（600000）
+  const h = harness("idle", { idleMs: 300 });
+  const sessionFile = path.join(h.dir, "idle.jsonl");
+  const turns = Array.from({ length: 6 }, (_, i) =>
+    JSON.stringify({ type: "message", timestamp: NOW + i, message: { role: "user", content: [{ type: "text", text: `第 ${i + 1} 轮` }] } }))
+    .join("\n");
+  fs.writeFileSync(sessionFile, `${turns}\n`, "utf8");
+  // 最后活动在「100ms 前」→ 还剩 200ms 才满 300ms
+  ageFile(sessionFile, NOW, 100);
+
+  const first = await h.dispatch({ sessionId: "idle-1", skills: ["a"], sessionFile });
+  assert.equal(first.status, "superseded");
+  assert.equal(h.calls.length, 0, "静默没满就不该起子进程");
+
+  // 定时器有 1000ms 下限（防止亚秒级空转），所以等到 1.4s 再看
+  await new Promise((resolve) => setTimeout(resolve, 1400));
+  assert.equal(h.calls.length, 1, "静默满 300ms 后应自动补发一次");
+  const args = h.calls[0].args;
+  assert.equal(args[0], "-p");
+});
+
+test("静默判据：拿不到会话文件时返回 0（不拦），mtime 很新时返回剩余毫秒", () => {
+  assert.equal(idleRemaining(null, NOW, 600_000), 0);
+  assert.equal(idleRemaining(NOW - 1000, NOW, 600_000), 599_000);
+  assert.equal(idleRemaining(NOW - 600_000, NOW, 600_000), 0);
+  assert.equal(idleRemaining(NOW - 900_000, NOW, 600_000), -300_000);
 });

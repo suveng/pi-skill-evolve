@@ -73,4 +73,13 @@ export interface DispatchOptions {
   /** 手动 `/skill-evolve run`：跳过去抖与单会话上限，但**仍必须守全局锁** */
   bypassThrottle?: boolean;
   trigger?: RunRecord["trigger"];
+  /**
+   * 静默定时器到点后的补发（内部用，别手填）。
+   *
+   * 为什么要这个开关：静默窗口的判据是「会话最后活动 + idleMs」，
+   * 定时器回调那一刻会话确实已经静默够了，但 `at` 与 mtime 的差就是 idleMs，
+   * 万一 mtime 恰好又往前挪了一点点（守护进程的 touch），重判会再推迟一轮、永远派不出去。
+   * 到点了就直接派，不再自我否决。
+   */
+  fromIdleTimer?: boolean;
 }

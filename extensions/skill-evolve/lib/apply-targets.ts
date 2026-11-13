@@ -28,7 +28,17 @@ export interface PlanResult {
 
 export interface ProposalMeta {
   type: string;
+  /** 主技能：队列条目的展示名、`create` 时新建目录的名字都用它 */
   skill: string;
+  /**
+   * 这份提案涉及的全部技能（2026-11-14 用户口径：一次复盘可以对多个技能提提案）。
+   *
+   * 老提案只有 `skill`，读出来就是 `[skill]`；新提案可在 `02-proposal.json` 里写
+   * `"skills": ["a","b"]`，`skill` 仍填主技能（缺省取 `skills[0]`）。
+   * 真正的「改哪几个文件」以 diff 的文件头为准（`planTargets` 逐段应用），
+   * `skills` 只用于展示与统计，不参与写盘判定 —— 少写一个名字不会漏改文件。
+   */
+  skills: string[];
   diffFile: string;
   candidateFile?: string;
 }
@@ -46,10 +56,18 @@ export function readProposalMeta(runDir: string): ProposalMeta | null {
   if (raw === null) return null;
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    if (typeof parsed.skill !== "string" || parsed.skill.trim().length === 0) return null;
+    const named = typeof parsed.skills === "object" && Array.isArray(parsed.skills)
+      ? parsed.skills.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim())
+      : [];
+    const primary = typeof parsed.skill === "string" && parsed.skill.trim().length > 0
+      ? parsed.skill.trim()
+      : (named[0] ?? "");
+    if (primary.length === 0) return null;
+    const skills = [...new Set([primary, ...named])];
     return {
       type: typeof parsed.type === "string" ? parsed.type : "improve",
-      skill: parsed.skill.trim(),
+      skill: primary,
+      skills,
       diffFile: typeof parsed.diffFile === "string" ? parsed.diffFile : "02-proposal.diff",
       ...(typeof parsed.candidateFile === "string" ? { candidateFile: parsed.candidateFile } : {}),
     };

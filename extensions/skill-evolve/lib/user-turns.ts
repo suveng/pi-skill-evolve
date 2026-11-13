@@ -58,3 +58,19 @@ export function readUserMessages(filePath: string | null | undefined): number | 
     return null;
   }
 }
+
+/**
+ * 会话文件最后被写的时间（毫秒）。
+ *
+ * 用途：「静默 10 分钟再复盘」（2026-11-13 用户口径：以**会话最后一次活动**为起算点，
+ * 不是以「上次派发」为起算点）。文件 mtime 就是最可靠的活动信号 —— 每来一条消息 pi 都会追加一行。
+ * 拿不到返回 null（调用方按「不知道」处理，不据此推迟）。
+ */
+export function readSessionMtime(filePath: string | null | undefined): number | null {
+  if (!filePath) return null;
+  try {
+    return fs.statSync(filePath).mtimeMs;
+  } catch {
+    return null;
+  }
+}

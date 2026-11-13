@@ -20,7 +20,7 @@ import { agentSessionFlags, CHILD_LOG, childEnvOf, isExecutableFile, resolvePiBi
 import { mergePendingRounds } from "./pending.ts";
 import { watchRunChild } from "./run-watch.ts";
 import { spawnReviewSupervisor } from "./review-spawn.ts";
-import { readUserMessages } from "./user-turns.ts";
+import { readSessionMtime, readUserMessages } from "./user-turns.ts";
 import { guardBusy } from "./single-flight.ts";
 import { DISPATCH_QUEUE_LIMIT, enqueueDispatch, popDispatch, restoreDispatch } from "./dispatch-queue.ts";
 import { drainPending } from "./drain-pending.ts";
@@ -29,6 +29,17 @@ import type { DispatchDeps, DispatchInput, DispatchOptions, DispatchOutcome } fr
 
 // 类型都搬到了 ./dispatch-types.ts（本文件贴着 300 行闸门），这里原样再导出，调用方路径不变
 export type { DispatchInput, DispatchDeps, DispatchedRun, DispatchOutcome, DispatchOptions } from "./dispatch-types.ts";
+
+/**
+ * 静默窗口还剩多少毫秒（<=0 表示静默够了，可以派发）。
+ *
+ * `lastActivity` 为 null（拿不到会话文件 / 文件被删）时返回 0 —— 不知道就别拦，
+ * 让既有的「上次派发 + idleMs」去抖兜住，避免把手动触发和没有会话文件的路径永久卡住。
+ */
+export function idleRemaining(lastActivity: number | null, now: number, idleMs: number): number {
+  if (lastActivity === null) return 0;
+  return idleMs - (now - lastActivity);
+}
 
 /** 去抖：窗口内又结束一轮，只更新 pending，不再叠加进程 */
 export function shouldDebounce(lastDispatchAt: number | undefined, now: number, idleMs: number): boolean {
@@ -124,8 +135,31 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
     }
 
     if (!bypass) {
+      // 静默判据（2026-11-13 用户口径）：以**会话最后一次活动**（会话文件 mtime）为起算点，
+      // 静默满 idleMs 才开始复盘。不到点就先攒着，并挂一个定时器到点自动补发 ——
+      // 否则「会话说完就散了、再也没有下一个结算点」的会话永远等不到复盘。
+      if (options.fromIdleTimer !== true) {
+        const mtime = readSessionMtime(input.sessionFile);
+        const remain = idleRemaining(mtime, at, deps.config.idleMs);
+        if (remain > 0) {
+          const carried = mergePending(input, at);
+          deps.telemetry.append({
+            kind: "superseded",
+            sessionId: input.sessionId,
+            lastDispatchAt: lastDispatchAt.get(input.sessionId) ?? 0,
+            idleMs: deps.config.idleMs,
+            rounds: carried.rounds,
+          });
+          scheduleIdle(input, remain);
+          log(
+            `[skill-evolve] 静默窗口未满：会话最后活动在 ${Math.round((at - (mtime ?? at)) / 1000)}s 前，` +
+              `还要等 ${Math.round(remain / 1000)}s（已累计 ${carried.rounds} 轮）`,
+          );
+          return { status: "superseded", rounds: carried.rounds };
+        }
+      }
       const last = lastDispatchAt.get(input.sessionId);
-      if (shouldDebounce(last, at, deps.config.idleMs)) {
+      if (options.fromIdleTimer !== true && shouldDebounce(last, at, deps.config.idleMs)) {
         const carried = mergePending(input, at);
         deps.telemetry.append({
           kind: "superseded",
@@ -134,6 +168,7 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
           idleMs: deps.config.idleMs,
           rounds: carried.rounds,
         });
+        scheduleIdle(input, deps.config.idleMs);
         log(`[skill-evolve] 去抖：并入待复盘区间（已累计 ${carried.rounds} 轮，静默窗口过后补一次）`);
         return { status: "superseded", rounds: carried.rounds };
       }
@@ -302,6 +337,31 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
     }
   };
 
+  // ---- 静默定时器 ----
+  /** 每个会话最多一个待触发的静默定时器；新活动来了就重置 */
+  const idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function cancelIdle(sessionId: string): void {
+    const timer = idleTimers.get(sessionId);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    idleTimers.delete(sessionId);
+  }
+
+  /** 到点补发：用原始输入再走一次 run()，跳过静默判据（这一刻静默确实满了） */
+  function scheduleIdle(input: DispatchInput, waitMs: number): void {
+    cancelIdle(input.sessionId);
+    const timer = setTimeout(() => {
+      idleTimers.delete(input.sessionId);
+      void run(input, { trigger: "auto", fromIdleTimer: true }).catch((error: unknown) => {
+        log(`[skill-evolve] 静默补发失败：${String(error)}`);
+      });
+    }, Math.max(1000, waitMs));
+    // 不能因为挂了个定时器就把宿主进程钉住 —— pi 该退就退
+    timer.unref?.();
+    idleTimers.set(input.sessionId, timer);
+  }
+
   const flushPending = (): number => {
     if (pending.size === 0) return 0;
     const at = now();
@@ -326,6 +386,7 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
       at,
     );
     for (const sessionId of sessions) {
+      cancelIdle(sessionId);
       lastDispatchAt.set(sessionId, at);
       dispatchCount.set(sessionId, (dispatchCount.get(sessionId) ?? 0) + 1);
     }
