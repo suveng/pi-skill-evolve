@@ -59,8 +59,10 @@ export interface EvolutionConfig {
   maxRuntimeMs: number;
   /** 单会话派生次数上限（进程内计数）；跨会话的总量由 lib/single-flight.ts 的全局闸兜底 */
   perSessionCap: number;
-  /** 评审不通过时给提案 Agent 的重写机会（默认 3 = 最多 4 次评审） */
+  /** 评审不通过时给提案 Agent 的重写机会（默认 0：2026-11-13 用户定「不用评审 Agent，也不用三次重写」） */
   maxRewrites: number;
+  /** 触发复盘的会话轮次门槛：用户消息必须 **大于** 这个数（默认 5 = 第 6 条起才值得花 token） */
+  minUserMessages: number;
   /** 趋势统计的回看天数（`/skill-evolve report --week` 的指标窗口）：默认 28 天 */
   metricsWindowDays: number;
   /** 采纳前备份保留天数（`backups/<runId>/`）：默认 3 天，超期在 session_start 清掉 */
@@ -79,10 +81,14 @@ export interface EvolutionConfig {
 
 export const DEFAULT_CONFIG: Readonly<EvolutionConfig> = Object.freeze({
   enabled: false,
-  idleMs: 90_000,
+  // 2026-11-13 用户定：会话结束 10 分钟后再复盘（原来 90 秒，太急着起子进程，一次会话能被拆成好几轮）
+  idleMs: 10 * 60_000,
   maxRuntimeMs: 20 * 60_000,
   perSessionCap: 20,
-  maxRewrites: 3,
+  // 2026-11-13 用户定：不设评审 Agent，故也没有「重写」这一步（0 = 不重写）
+  maxRewrites: 0,
+  // 2026-11-13 用户定：用户消息 > 5 条才触发复盘
+  minUserMessages: 5,
   // 28 天 = 四个整周，既够看出「这周比上周」又不至于把两个月前的旧账算进趋势（2026-11-10 搬上配置页）
   metricsWindowDays: 28,
   // 3 天（2026-11-10 用户定）：回滚窗口靠 git 兜底，备份只留最近的
@@ -148,6 +154,8 @@ export function normalizeConfig(raw: unknown, log: (msg: string) => void = () =>
     maxRuntimeMs: positiveInt(input.maxRuntimeMs, DEFAULT_CONFIG.maxRuntimeMs),
     perSessionCap: positiveInt(input.perSessionCap, DEFAULT_CONFIG.perSessionCap),
     maxRewrites: nonNegativeInt(input.maxRewrites, DEFAULT_CONFIG.maxRewrites),
+    // 0 = 不设门槛（每条会话都复盘）；上限 1000 防止手写成天文数字等于永久静默
+    minUserMessages: clampInt(input.minUserMessages, DEFAULT_CONFIG.minUserMessages, 0, 1000),
     // 窗口太短看不出趋势（<7 天不足一周对比）、太长等于把历史全算进来：越界回落默认值而不是静默截断
     metricsWindowDays: clampInt(input.metricsWindowDays, DEFAULT_CONFIG.metricsWindowDays, 7, 365),
     // 0 天等于「刚备份就删」，365 以上等于不清理：两头都越界回落 3 天

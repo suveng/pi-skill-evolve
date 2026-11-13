@@ -51,10 +51,21 @@ export type DispatchOutcome =
   | { status: "dispatched"; run: DispatchedRun }
   | {
       status: "skipped";
-      why: "disabled" | "cap" | "lock" | "lock-error" | "selftest-failed" | "busy" | "pi-not-found";
+      why:
+        | "disabled"
+        | "cap"
+        | "lock"
+        | "lock-error"
+        | "selftest-failed"
+        | "busy"
+        | "pi-not-found"
+        /** 会话里用户消息没超过 minUserMessages：不值得花一次复盘 token（2026-11-13） */
+        | "too-few-turns";
       ownerPid: number | null;
     }
   | { status: "superseded"; rounds: number }
+  /** 已有复盘子进程在跑：这一轮排进派发队列，跑完自动接上（不再丢轮次，见 lib/dispatch-queue.ts） */
+  | { status: "queued"; sessionId: string; depth: number }
   /** 同一会话已有在途复盘：这一轮并进去了，既没建新 run 也没起进程（见 lib/aggregate.ts） */
   | { status: "merged"; runId: string; rounds: number };
 

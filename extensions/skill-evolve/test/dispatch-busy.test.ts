@@ -89,7 +89,7 @@ const noSpawn: SpawnLike = () => {
   throw new Error("全局单飞闸挡住的派发不该 spawn");
 };
 
-test("dispatch：已有活的复盘子进程 → 不 spawn，返回 busy 并写遥测", async () => {
+test("dispatch：已有活的复盘子进程 → 不 spawn，返回 queued 排队并写遥测", async () => {
   const ctx = workspace();
   occupy(ctx);
   const dispatcher = createDispatcher({
@@ -109,7 +109,12 @@ test("dispatch：已有活的复盘子进程 → 不 spawn，返回 busy 并写�
     },
   });
   const outcome = await dispatcher.dispatch({ sessionId: "s1", skills: ["fast-test"] });
-  assert.deepEqual(outcome, { status: "skipped", why: "busy", ownerPid: OCCUPIED_PID });
+  // 2026-11-13 用户要求「多个会话结束要支持排队」：挡下的一轮不再丢，而是排进 dispatch-queue.json
+  assert.deepEqual(outcome, { status: "queued", sessionId: "s1", depth: 1 });
+  const queuedFile = path.join(ctx.evolutionDir, "dispatch-queue.json");
+  assert.equal(fs.existsSync(queuedFile), true, "被单飞闸挡下的一轮必须排队，不能丢");
+  const queued = JSON.parse(fs.readFileSync(queuedFile, "utf8")) as Array<Record<string, unknown>>;
+  assert.deepEqual(queued.map((row) => [row.sessionId, row.rounds, row.skills]), [["s1", 1, ["fast-test"]]]);
   const busy = ctx.events.filter((event) => event.kind === "skipped" && event.why === "busy");
   assert.equal(busy.length, 1);
   assert.deepEqual(busy[0]!.occupant, { runId: "other", pid: OCCUPIED_PID, kind: "复盘" });

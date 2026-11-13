@@ -205,6 +205,8 @@ export function createEvolution(deps: EvolutionDeps): Evolution {
   const settle: Evolution["settle"] = (input) => {
     // 评审督导是独立进程、可能刚写完 03-review.json：每轮都扫一次队列，auto 条自动落盘
     if (!isChildProcess(env)) applyTools.settle();
+    // 之前被单飞闸挡下的轮次排在 dispatch-queue.json 里：每次结算推一次（子进程退出时也会推，两条路互补）
+    void dispatcher.drain().catch((error: unknown) => recordHandlerError("drain", error));
     const result = rounds.settle(input.sessionId);
     if (!result) return;
 

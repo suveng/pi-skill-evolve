@@ -157,7 +157,10 @@ test("buildPrompt：带会话原文/索引/run 目录，并写清覆盖轮数", 
 test("dispatch 成功：spawn 参数、env、run.json、会话索引都到位", async () => {
   const h = harness("ok");
   const sessionFile = path.join(h.dir, "session.jsonl");
-  fs.writeFileSync(sessionFile, `${JSON.stringify({ type: "session", id: "sess-1", cwd: h.dir })}\n`, "utf8");
+  const turns = Array.from({ length: 6 }, (_, i) =>
+    JSON.stringify({ type: "message", timestamp: NOW + i, message: { role: "user", content: [{ type: "text", text: `第 ${i + 1} 轮` }] } }))
+    .join("\n");
+  fs.writeFileSync(sessionFile, `${JSON.stringify({ type: "session", id: "sess-1", cwd: h.dir })}\n${turns}\n`, "utf8");
 
   const outcome = await h.dispatch({ sessionId: "sess-1", skills: ["a"], sessionFile });
   assert.equal(outcome.status, "dispatched");
@@ -322,4 +325,20 @@ test("dispatch 收尸：子进程非零退出 → run.json 标 abandoned 并放�
   assert.equal(record.status, "abandoned");
   assert.equal(String(record.abandonedReason).includes("exit 3"), true);
   assert.equal(fs.existsSync(path.join(h.dir, ".pi", "evolution", "locks", "dispatch")), false);
+});
+
+test("轮次门槛：用户消息 ≤ 5 条不派发（不起子进程，只记 too-few-turns）", async () => {
+  const h = harness("turns-few");
+  const sessionFile = path.join(h.dir, "session.jsonl");
+  const five = Array.from({ length: 5 }, (_, i) =>
+    JSON.stringify({ type: "message", timestamp: NOW + i, message: { role: "user", content: [{ type: "text", text: `第 ${i + 1} 轮` }] } }))
+    .join("\n");
+  fs.writeFileSync(sessionFile, `${five}\n`, "utf8");
+
+  const outcome = await h.dispatch({ sessionId: "sess-few", skills: ["a"], sessionFile });
+  assert.equal(outcome.status, "skipped");
+  if (outcome.status !== "skipped") return;
+  assert.equal(outcome.why, "too-few-turns");
+  assert.equal(h.calls.length, 0, "不够轮次时一个子进程都不该起");
+  assert.equal(h.events.some((event) => event.kind === "skipped" && (event as { why?: string }).why === "too-few-turns"), true);
 });

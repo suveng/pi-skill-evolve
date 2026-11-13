@@ -20,7 +20,9 @@ import { agentSessionFlags, CHILD_LOG, childEnvOf, isExecutableFile, resolvePiBi
 import { mergePendingRounds } from "./pending.ts";
 import { watchRunChild } from "./run-watch.ts";
 import { spawnReviewSupervisor } from "./review-spawn.ts";
+import { readUserMessages } from "./user-turns.ts";
 import { guardBusy } from "./single-flight.ts";
+import { DISPATCH_QUEUE_LIMIT, enqueueDispatch, popDispatch, restoreDispatch } from "./dispatch-queue.ts";
 import { drainPending } from "./drain-pending.ts";
 import type { PendingRounds } from "./shutdown-dispatch.ts";
 import type { DispatchDeps, DispatchInput, DispatchOptions, DispatchOutcome } from "./dispatch-types.ts";
@@ -37,6 +39,11 @@ export interface Dispatcher {
   dispatch(input: DispatchInput, options?: DispatchOptions): Promise<DispatchOutcome>;
   /** 退出前同步补发所有 pending，返回真正派发成功的条数；任何失败都不抛 */
   flushPending(): number;
+  /**
+   * 把排队中的派发往下推：队首那条派出去，派成功再接着推下一条，遇到忙就停下。
+   * 返回这一轮真正派出去的条数。子进程退出、以及每次结算都会调它。
+   */
+  drain(): Promise<number>;
 }
 
 export function createDispatcher(deps: DispatchDeps): Dispatcher {
@@ -92,6 +99,23 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
       return { status: "skipped", why: "disabled", ownerPid: null };
     }
 
+    // 轮次门槛（2026-11-13 用户口径）：用户消息 **大于** minUserMessages 才值得花一次复盘 token。
+    // 放在起进程之前 —— 钱是起进程那一刻花掉的。手动 `run --now` 跳过这道闸（人明确要求就看）。
+    if (!bypass) {
+      const min = deps.config.minUserMessages;
+      const turns = readUserMessages(input.sessionFile);
+      // 没有会话文件 = 数不了轮次：这种情况放行（面板手动触发、无会话的历史轨迹都走这里），
+      // 但文件在、能读时就必须数清楚 —— 读不到当 0 条会白白放过一个长会话。
+      if (turns !== null && turns <= min) {
+        deps.telemetry.append({ kind: "skipped", sessionId: input.sessionId, why: "too-few-turns", turns, min, trigger });
+        log(`[skill-evolve] 跳过派生：本轮用户消息 ${turns} 条，未超过门槛 ${min} 条`);
+        return { status: "skipped", why: "too-few-turns", ownerPid: null };
+      }
+      if (turns === null && input.sessionFile) {
+        log(`[skill-evolve] 读不到会话文件（${input.sessionFile}），轮次门槛不生效，按原流程派发`);
+      }
+    }
+
     // 必红自检没过就别再产出提案：评审器不可信时，继续派发只是在制造假结论
     if (deps.selftestFailed?.() === true) {
       deps.telemetry.append({ kind: "skipped", sessionId: input.sessionId, why: "selftest-failed", trigger });
@@ -126,7 +150,12 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
 
     // 全局单飞（跨会话也成立）：已有复盘或督导在跑这一轮就不叠进程；放去抖 / 上限之后，那两条是「本轮不派」的既定语义
     const occupant = guardBusy({ evolutionDir: deps.evolutionDir, sessionId: input.sessionId, telemetry: deps.telemetry, trigger, alive: deps.alive, log });
-    if (occupant) return { status: "skipped", why: "busy", ownerPid: occupant.pid };
+    if (occupant) {
+      // 排队而不是丢掉：多开几个会话同时结束是常态，丢了就永远没人复盘这一轮（2026-11-13 用户要求）
+      const depth = await enqueueDispatch(deps.evolutionDir, deps.queue, input, at, log);
+      log(`[skill-evolve] 已有复盘子进程在跑（pid ${occupant.pid}）：本轮排队第 ${depth} 位，跑完自动接上`);
+      return { status: "queued", sessionId: input.sessionId, depth };
+    }
 
     const carried = pending.get(input.sessionId);
     // 合并派发：本轮 + 之前被去抖挡下的所有轮次，覆盖起点取第一次被挡下的时刻
@@ -241,7 +270,17 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
       pending.delete(input.sessionId);
       lastDispatchAt.set(input.sessionId, at);
       dispatchCount.set(input.sessionId, (dispatchCount.get(input.sessionId) ?? 0) + 1);
-      watchRunChild(child, { runDir, queue: deps.queue, log, onExit: releaseOnce });
+      watchRunChild(child, {
+        runDir,
+        queue: deps.queue,
+        log,
+        // 子进程收尾：先解锁，再把排队中的派发推一条 ── 否则排队的轮次要等到下一次会话结束才动
+        onExit: () => {
+          void releaseOnce()
+            .then(() => drainQueued())
+            .catch((error: unknown) => log(`[skill-evolve] 排队推进失败：${String(error)}`));
+        },
+      });
       // 同一次派发再起一个独立督导：等 02-proposal.json → 另起评审进程 → 写 03-review.*
       // 开关在这里现读（用户可能中途 review on/off）；关着时由 spawnReviewSupervisor 自己拒绝并记日志
       spawnReviewSupervisor({
@@ -293,5 +332,38 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
     return sessions.length;
   };
 
-  return { dispatch: run, flushPending };
+  /**
+   * 推队列：队首派得出去就接着推下一条；遇到「又忙了 / 被禁用」就把它原样放回队首并停下。
+   * 循环上限 DISPATCH_QUEUE_LIMIT 次，防御异常情况下的死循环。
+   */
+  const drainQueued = async (): Promise<number> => {
+    let done = 0;
+    for (let guard = 0; guard < DISPATCH_QUEUE_LIMIT + 1; guard += 1) {
+      const next = await popDispatch(deps.evolutionDir, deps.queue);
+      if (next === null) return done;
+      const outcome = await run(
+        {
+          sessionId: next.sessionId,
+          skills: next.skills,
+          ...(next.sessionFile ? { sessionFile: next.sessionFile } : {}),
+          ...(next.attributions ? { attributions: next.attributions } : {}),
+        },
+        { bypassThrottle: true, trigger: "auto" },
+      );
+      if (outcome.status === "dispatched") {
+        done += 1;
+        log(`[skill-evolve] 排队派发：会话 ${next.sessionId} 已接上（覆盖 ${next.rounds} 轮）`);
+        continue;
+      }
+      // 并入在途复盘也算处理完：那一轮的轮次已经被 mergeRoundIntoRun 记进 coverage
+      if (outcome.status === "merged") continue;
+      await restoreDispatch(deps.evolutionDir, deps.queue, next);
+      const why = outcome.status === "skipped" ? outcome.why : outcome.status;
+      log(`[skill-evolve] 排队派发未成功（${why}）：会话 ${next.sessionId} 放回队首，等下一次`);
+      return done;
+    }
+    return done;
+  };
+
+  return { dispatch: run, flushPending, drain: drainQueued };
 }
