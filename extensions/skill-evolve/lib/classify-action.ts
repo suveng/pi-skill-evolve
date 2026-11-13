@@ -133,12 +133,13 @@ export function classifyChange(input: ClassifyInput): ClassifyResult {
     if (AGENTS_FILE.test(section.path)) {
       return section.lines.every((line) => line.sign === " " || line.text.trim().length === 0 || INDEX_ROW.test(line.text));
     }
-    // 技能目录里的 references / scripts 等附属文件：允许改，但要人看一眼再落盘。
-    // 脚本会被执行、参考文件会改变行为边界，自动采纳的收益远小于「悄悄改了脚本」的风险。
-    if (!SKILL_FILE.test(section.path)) return false;
+    // 技能目录里的 references / scripts 等附属文件：2026-11-14 用户口径「自动采纳就是允许所有，
+    // 不管是哪种文件」—— 与 SKILL.md 同等自动，新建参考文件也一样。
+    if (!SKILL_FILE.test(section.path)) return true;
     // 正文与 description 同等对待：2026-11-11 用户口径「正文也可以改，也可以自动采纳」。
     // 语义字段（name / allowed-tools / disable-model-invocation）已在上面按行判过 forbidden，这里不必再拦。
     // 仍然拦的只有「新建整份技能文件」——那是造技能，不是修技能。
+    // 只有「新建整份 SKILL.md」仍要人批：那是造技能，不是修技能
     return !section.created;
   };
 
@@ -147,7 +148,7 @@ export function classifyChange(input: ClassifyInput): ClassifyResult {
     const offender = sections.find((section) => !sectionAuto(section));
     return {
       level: "approval",
-      reasons: [`需要人批：新增技能文件 / 改到 references、scripts 等附属文件（${offender?.path ?? "未知路径"}）`],
+      reasons: [`需要人批：新增整份技能文件（${offender?.path ?? "未知路径"}）`],
       targets,
     };
   }
@@ -161,7 +162,7 @@ export function classifyChange(input: ClassifyInput): ClassifyResult {
 
   const cursorOnly = sections.every((section) => CURSOR_STUB.test(section.path));
   if (cursorOnly) return { level: "auto", reasons: ["新建 .cursor 路由 stub"], targets };
-  return { level: "auto", reasons: ["改技能文件（描述或正文）与 .cursor stub"], targets };
+  return { level: "auto", reasons: ["改技能文件（描述 / 正文 / references / scripts）与 .cursor stub"], targets };
 }
 
 /** 只看级别的旧调用面（评审督导写 03-review.json 的 action 用） */

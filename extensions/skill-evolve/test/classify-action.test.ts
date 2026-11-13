@@ -43,14 +43,13 @@ test("description 续行（缩进 ≥2）与纯空白改动仍算 auto", () => {
   assert.equal(result.level, "auto");
 });
 
-test("技能目录下的附属文件（notes.md）不再是越界：允许改，但要人批", () => {
+test("技能目录下的附属文件（notes.md）不再是越界：允许改，自动采纳", () => {
   const result = classifyChange({
     diffText: diff(".pi/skills/deploy-test/notes.md", "-旧\n+新"),
     proposalType: "improve",
     skill: "deploy-test",
   });
-  assert.equal(result.level, "approval");
-  assert.equal(result.reasons[0]?.includes("附属文件"), true);
+  assert.equal(result.level, "auto");
 });
 
 test("删除技能文件（+++ /dev/null）→ forbidden", () => {
@@ -132,29 +131,36 @@ test("classifyAction 兼容旧调用面（只看级别）", () => {
   assert.equal(classifyAction(diff(SKILL, "-a\n+b"), "prune"), "forbidden");
 });
 
-test("references 与 scripts 允许改，但要人批（2026-11-14 用户口径：附属文件也要能进化）", () => {
+test("references 与 scripts 允许改，且与 SKILL.md 同档自动采纳（2026-11-14 用户口径）", () => {
   const ref = classifyChange({
     diffText: diff(".pi/skills/deploy-test/references/checklist.md", "-旧清单\n+新清单"),
     proposalType: "improve",
     skill: "deploy-test",
   });
-  assert.equal(ref.level, "approval");
-  assert.equal(ref.reasons[0]?.includes("references"), true);
+  assert.equal(ref.level, "auto");
 
   const script = classifyChange({
     diffText: diff(".pi/skills/deploy-test/scripts/deploy.sh", "-old\n+new"),
     proposalType: "improve",
     skill: "deploy-test",
   });
-  assert.equal(script.level, "approval");
+  assert.equal(script.level, "auto");
 
-  // 技能目录里新建一个参考文件也允许（仍然人批）
+  // 技能目录里新建一个参考文件也自动采纳
   const created = classifyChange({
     diffText: diff(".pi/skills/deploy-test/references/new.md", "+# 新参考", "/dev/null", true),
     proposalType: "improve",
     skill: "deploy-test",
   });
-  assert.equal(created.level, "approval");
+  assert.equal(created.level, "auto");
+
+  // 但「新建整份 SKILL.md」仍然被拦：它必然要写 name: 字段，按行判即时 forbidden
+  const newSkill = classifyChange({
+    diffText: diff(".pi/skills/brand-new/SKILL.md", "+---\n+name: brand-new", "/dev/null", true),
+    proposalType: "create",
+    skill: "brand-new",
+  });
+  assert.equal(newSkill.level, "forbidden");
 });
 
 test("技能目录之外仍然越界：`..`、绝对路径、别的技能树一律 forbidden", () => {
