@@ -91,7 +91,7 @@ test("spawnDetached：stdout+stderr 指向 logFile，子进程写入能落到文
       return { pid: 4242, unref: () => {} };
     },
     "/bin/pi",
-    ["-p", "--no-session", "-ns", "prompt"],
+    ["-p", "--no-session", "prompt"],
     { cwd: dir, env: {}, logFile },
   );
   assert.equal(child.pid, 4242);

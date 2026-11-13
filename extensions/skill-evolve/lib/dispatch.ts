@@ -281,7 +281,7 @@ export function createDispatcher(deps: DispatchDeps): Dispatcher {
         coverage,
       });
       const spawnFn: SpawnLike = deps.spawnFn ?? (spawn as unknown as SpawnLike);
-      const child = spawnDetached(spawnFn, piBin, ["-p", ...agentSessionFlags(runDir, "analyze"), "-ns", prompt], {
+      const child = spawnDetached(spawnFn, piBin, ["-p", ...agentSessionFlags(runDir, "analyze"), prompt], {
         cwd: deps.cwd,
         env: childEnvOf(env),
         // stdout+stderr 落到 run 目录：子进程怎么死的，只有这份日志答得出来

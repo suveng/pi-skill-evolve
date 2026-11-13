@@ -169,13 +169,12 @@ test("dispatch 成功：spawn 参数、env、run.json、会话索引都到位", 
   const { command, args, options } = h.calls[0];
   assert.equal(command, DEFAULT_PI_BIN);
   // 子进程会话落进 run 目录的 agents/：面板要能像看待普通会话一样打开它
-  assert.deepEqual(args.slice(0, 6), [
+  assert.deepEqual(args.slice(0, 5), [
     "-p",
     "--session-dir",
     path.join(h.dir, ".pi", "evolution", "runs", outcome.run.runId, "agents"),
     "--session-id",
     "se-analyze",
-    "-ns",
   ]);
   assert.equal(args.some((arg) => arg.includes(sessionFile)), true, "prompt 里要带上用户会话路径");
   assert.equal(options.detached, true);

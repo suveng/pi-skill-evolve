@@ -149,7 +149,7 @@ export async function runRewritePass(prompt: string, runDir: string, attempt: nu
   const spawnFn = deps.spawnFn ?? (nodeSpawn as unknown as ReviewSpawn);
   const logFile = path.join(runDir, rewriteLogName(attempt));
   const started = now();
-  const args = ["-p", ...agentSessionFlags(runDir, `rewrite-${attempt}`), "-ns", prompt];
+  const args = ["-p", ...agentSessionFlags(runDir, `rewrite-${attempt}`), prompt];
   if (deps.model && deps.model !== "inherit") args.push("--model", deps.model);
 
   let stdout = "";

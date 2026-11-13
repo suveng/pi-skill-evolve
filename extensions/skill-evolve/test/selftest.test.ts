@@ -25,7 +25,7 @@ function tmpDir(): string {
 /** 按 prompt 末尾的「技能名：x」挑结论 */
 function spawnBySkill(verdicts: Record<string, string>, opts: { dropPassed?: boolean } = {}): ReviewSpawn {
   return (_command, args) => {
-    const prompt = args[3] ?? "";
+    const prompt = args.at(-1) ?? "";
     const skill = Object.keys(verdicts).find((name) => prompt.includes(`技能名：${name}`));
     const reply = fakeReply(skill ? (verdicts[skill] ?? "pass") : "pass", { dropPassed: opts.dropPassed === true });
     const child = new FakeReviewChild();

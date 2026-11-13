@@ -54,7 +54,9 @@ export function reviewArgs(prompt: string, model?: string, session?: { dir: stri
   // 落会话时不用 --no-session：面板要能像看待普通会话一样打开评审 Agent 的完整过程
   if (session) args.push("--session-dir", session.dir, "--session-id", session.id);
   else args.push("--no-session");
-  args.push("-ns", prompt);
+  // 2026-11-14 用户口径：复盘子进程与 TUI 一样带技能、扩展、MCP（旧实现用 -ns 省 token，
+  // 代价是「该用没用」判不准：子进程看不到任何技能描述）。
+  args.push(prompt);
   if (model && model !== "inherit") args.push("--model", model);
   return args;
 }

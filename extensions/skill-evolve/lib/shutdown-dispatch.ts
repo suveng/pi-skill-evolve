@@ -169,7 +169,7 @@ export function flushPendingSync(item: PendingRounds, deps: ShutdownDeps, now: n
       dispatchedAt: now,
       coverage: record.coverage,
     });
-    const child = spawnDetached(deps.spawnFn, piBin, ["-p", "--no-session", "-ns", prompt], {
+    const child = spawnDetached(deps.spawnFn, piBin, ["-p", "--no-session", prompt], {
       cwd: deps.cwd,
       env: { ...deps.env, SKILL_EVOLVE_CHILD: "1" },
       // 退出前补发这条路径最容易“静默失败”：日志落盘才知道子进程到底起没起来
