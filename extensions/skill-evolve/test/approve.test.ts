@@ -321,3 +321,20 @@ test("同一技能有更早 pending 时，新 run 入队即 superseded 且不会
   assert.equal(await instance.autoApplyPending(), 0); // 前一条是 approval，不等自动
   assert.equal(fs.readFileSync(fixture.skillAbs, "utf8"), SKILL_TEXT);
 });
+
+test("run 目录超过扫描上限时，最新的提案不会因为排在后面而被跳过", async () => {
+  // 复现 2026-11-14 的真 bug：旧实现 readdir().slice(0, MAX_SCAN) 按创建顺序截断，
+  // run 一多，最新那批永远排在第 50 个之后 → 面板里一直显示「待入队」。
+  const fixture = setup();
+  await seedGate0(fixture);
+  for (let i = 1; i <= 60; i += 1) {
+    const name = `ffffffff-0000000000${String(i).padStart(2, "0")}`;
+    seedRun(fixture, name, "analyzed");
+  }
+  const newest = "c9808067-1794559590";
+  seedRun(fixture, newest, "reviewed");
+  const apply = tools(fixture);
+  const added = await apply.enqueueReady();
+  assert.equal(added, 1);
+  assert.deepEqual(readQueue(fixture.evolutionDir).map((item) => item.runId), [newest]);
+});

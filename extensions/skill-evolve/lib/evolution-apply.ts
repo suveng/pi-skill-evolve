@@ -127,16 +127,24 @@ export function createApplyTools(deps: ApplyToolsDeps): ApplyTools {
     // 开关现读（不缓存）：中途 review off 就新提案进队列标 reviewSkipped，review on 就恢复只收 reviewed
     const autoReview = deps.flags().autoReview;
     const runsDir = path.join(deps.evolutionDir, "runs");
-    let names: string[];
+    let all: string[];
     try {
-      names = fs.readdirSync(runsDir).slice(0, MAX_SCAN);
+      all = fs.readdirSync(runsDir);
     } catch {
       return 0;
     }
     const known = new Set(readQueue(deps.evolutionDir).map((item) => item.runId));
+    // 只对「还没进队列」的目录干活，再从最老的开始排队：
+    // 旧实现是 `readdir().slice(0, MAX_SCAN)` —— readdir 按创建顺序给，run 一多，最新的那批
+    // 永远排在第 50 个之后，于是永远扫不到（2026-11-14 实测：11 条 reviewed 提案在面板里
+    // 卡成「待入队」不动）。先过滤已知、再按目录名（内含毫秒时间戳）升序，积压先清、新的一轮轮扫到。
+    const fresh = all.filter((name) => !known.has(name)).sort();
+    const names = fresh.slice(0, MAX_SCAN);
+    if (fresh.length > names.length) {
+      log(`[skill-evolve] 待入队 ${fresh.length} 个，本轮处理 ${names.length} 个，其余下轮继续`);
+    }
     let added = 0;
     for (const name of names) {
-      if (known.has(name)) continue;
       const runDir = path.join(runsDir, name);
       const raw = readRunJson(runDir);
       if (!raw) continue;
