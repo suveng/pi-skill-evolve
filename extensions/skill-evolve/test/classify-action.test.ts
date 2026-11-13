@@ -175,3 +175,21 @@ test("技能目录之外仍然越界：`..`、绝对路径、别的技能树一�
     assert.equal(verdict.level, "forbidden", path);
   }
 });
+
+test("description 里写「冒号 + 空格」→ forbidden（YAML 会当成嵌套映射，整份 SKILL.md 解析失败）", () => {
+  const broken = classifyChange({
+    diffText: diff(SKILL, "-description: 旧描述\n+description: 带脏文件拉取要用 git pull --no-rebase；报错形如 cannot pull with rebase: You have unstaged changes"),
+    proposalType: "improve",
+    skill: "deploy-test",
+  });
+  assert.equal(broken.level, "forbidden");
+  assert.match(broken.reasons[0] ?? "", /冒号 \+ 空格/);
+
+  // 中文冒号不受影响
+  const fine = classifyChange({
+    diffText: diff(SKILL, "-description: 旧描述\n+description: 本仓 pull.rebase=true：带脏文件拉取要用 --no-rebase"),
+    proposalType: "improve",
+    skill: "deploy-test",
+  });
+  assert.equal(fine.level, "auto");
+});

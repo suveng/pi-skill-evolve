@@ -45,8 +45,21 @@ const PROTECTED_PATH = ".pi/extensions/skill-evolve";
 /** 换掉这三个字段就是换技能语义（名字 / 工具面 / 是否进 prompt），不许自动采纳 */
 const FORBIDDEN_FIELD = /^(name|allowed-tools|disable-model-invocation):/;
 const DESCRIPTION_START = /^description:/;
+/**
+ * frontmatter 里 `description:` 是**裸标量**：值里出现半角「冒号 + 空格」会被 YAML 当成嵌套映射，
+ * 整份 SKILL.md 解析失败（2026-11-13 实测：候选描述里写了 `cannot pull with rebase: You …`，
+ * 应用后被闸3 复验打回 `Nested mappings are not allowed in compact mappings at line 2, column 14`，白跑一次）。
+ * 这种提案在判定阶段就拦掉，别等写盘再回滚。
+ */
+const YAML_BREAKING_COLON = /:\s/;
 /** AGENTS.md 的 Skill 索引表行：`- \`<名>\` —— <路径>` */
 const INDEX_ROW = /^\s*[-*]\s+`[^`]+`\s/;
+
+/** 取 description 行「值」的部分：`description: xxx` → `xxx`；续行原样返回。判冒号只看值，不看键本身 */
+function descriptionValueOf(text: string): string {
+  const hit = /^description:\s*/i.exec(text);
+  return hit ? text.slice(hit[0].length) : text;
+}
 
 function normalizePath(raw: string): string | null {
   const head = raw.split("\t")[0].trim();
@@ -115,10 +128,15 @@ export function classifyChange(input: ClassifyInput): ClassifyResult {
     if (section.path.includes(PROTECTED_PATH)) return deny(`改动插件自身：${section.path}`);
     const inSkillDir = SKILL_ASSET_PATH.test(section.path) && !section.path.split("/").includes("..");
     if (!ALLOWED_PATH.test(section.path) && !inSkillDir) return deny(`路径越界：${section.path || "(未知路径)"}`);
-    for (const line of section.lines) {
+    const inDescription = descriptionFlags(section);
+    for (const [index, line] of section.lines.entries()) {
       // 只看增删行：上下文行里出现 `name:` 不是「改动字段」，否则任何挨着 frontmatter 的提案都会被误判 forbidden
       if (line.sign === " " || line.text.trim().length === 0) continue;
       if (FORBIDDEN_FIELD.test(line.text.trim())) return deny(`改动 frontmatter 字段：${line.text.trim()}`);
+      // description 里半角「冒号+空格」会让整份 SKILL.md 解析失败：改成中文冒号或去掉空格再提
+      if (line.sign === "+" && inDescription[index] === true && YAML_BREAKING_COLON.test(descriptionValueOf(line.text))) {
+        return deny(`description 里出现「冒号 + 空格」，YAML 会当成嵌套映射、整份 SKILL.md 解析失败：${line.text.trim().slice(0, 80)}`);
+      }
     }
   }
 
