@@ -118,6 +118,29 @@ logs/                扩展日志（建议 gitignore）
 - 采纳需过五道闸，任何写前有备份，可回滚
 - 「自动复盘」会启动 `pi -p` 子进程（独立进程、独立上下文），可在面板或命令里随时关掉
 
+## 发布（维护者）
+
+打 tag 即发：`git tag -a v0.1.50 -m "..."` 然后 `git push origin v0.1.50`。CI 走 GitHub OIDC trusted publishing，不需要 `NPM_TOKEN`，provenance 自动生成。
+
+**CI 报 success 不等于已上线。** npm 现在会把「没有人工 2FA 在场」的发布判成 **staged（预发布待批）**：`npm publish` 只回「being processed」，step 仍是 success，但 registry 上查不到该版本；同版本重跑会得到
+`409 Conflict - Cannot publish over previously staged version "<ver>"` —— 这条才是真因（2026-11-21 实测，0.1.49 第一次假成功、重跑才暴露）。
+
+发完必须核对：
+
+```bash
+curl -s https://registry.npmjs.org/-/package/pi-skill-evolve/dist-tags   # latest 应为新版本
+npm view pi-skill-evolve@<ver> dist.attestations.provenance              # 应有 slsa provenance
+```
+
+若确认是 staged，人工批准一次即可（本机不要长期留 token）：
+
+```bash
+npm login                      # 浏览器授权
+npm stage list pi-skill-evolve # 拿 stage-id
+npm stage approve <stage-id>   # 需要 6 位 OTP
+npm logout                     # 完事登出，并确认 ~/.npmrc 无 _authToken
+```
+
 ## 来源
 
 本包是 `vkk_client_flutter` 仓库内 `.pi/extensions/skill-evolve` 的镜像，源码与测试以该仓库为准。
