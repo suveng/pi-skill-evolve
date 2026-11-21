@@ -29,7 +29,8 @@ export const ACCEPTANCE_STANDARDS: readonly string[] = [
   "不得引入与硬约束冲突的条款",
   "不得删除原有的明确禁止项",
   "新增条款必须能用一句话说清「什么时候适用」",
-  "描述（description）必须包含触发场景词，且不超过 1024 字",
+  "description 的定位是路由：只写「什么时候使用 + 触发词」，不写流程细节、不复述正文内容",
+  "description 必须是一行裸标量且 ≤1024 字（机械闸门会拦；超限要压缩内容摘要，不许继续追加触发词）",
 ];
 
 function ruleLines(items: readonly ReviewRuleInput[] | readonly CompiledRule[]): string[] {
@@ -67,7 +68,7 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
     "",
     "## verdict 怎么选（别把能改的小毛病判成 reject）",
     "- reject：删掉了原有的明确禁止项 / 引入与硬约束冲突的内容 / 改动方向本身就是错的",
-    "- revise：方向可以接受，但有具体的可修点（如 description 太笼统、缺触发场景词、某句表述含糊）",
+    "- revise：方向可以接受，但有具体的可修点（如 description 太笼统、缺触发场景词、写成内容摘要、超过 1024 字、某句表述含糊）",
     "- pass：没有阻塞问题",
     "",
     "## 输出格式（严格遵守，只输出 JSON，不要代码围栏、不要解释）",

@@ -7,6 +7,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { PlannedTarget } from "./apply-targets.ts";
+import { checkDescription } from "./description-limit.ts";
 import { renderUnifiedDiff } from "./diff-gen.ts";
 import { captureGate0, gate0Drift, readGate0, type GitRunner } from "./gate0.ts";
 import type { MutationQueue } from "./telemetry.ts";
@@ -189,6 +190,11 @@ export async function runGates(deps: GateDeps, targets: readonly PlannedTarget[]
   const problems: string[] = [];
   const diagnostics = deps.loadDiagnostics();
   if (diagnostics.length > 0) problems.push(`skills diagnostics 非空：${diagnostics[0].message}`);
+  // description 是路由词：超过 1024 字 / 折行 / 块标量一律拦下（宿主诊断也盖，但这里能直接给「该怎么改」）
+  for (const target of targets.filter((item) => /^\.pi\/skills\/[^/]+\/SKILL\.md$/.test(item.path))) {
+    const description = checkDescription(target.after);
+    if (!description.ok) problems.push(`description 不合规（${target.path}）：${description.detail}`);
+  }
   for (const target of targets.filter((item) => item.path.startsWith(".pi/skills/"))) {
     const check = deps.runMdCheck(target.abs);
     if (check.code !== 0) problems.push(`md-check 失败（${target.path}）：${check.output.trim().split("\n").slice(-2).join(" / ")}`);

@@ -171,3 +171,47 @@ test("readProposalSummary：没提案返回 undefined，有提案返回摘要（
     file: "02-proposal.diff",
   });
 });
+
+test("validateProposal：create 的 description 超 1024 字 → invalid_candidate", () => {
+  const dir = runDir({
+    "02-proposal.json": JSON.stringify({ type: "create", skill: "new-skill", candidateFile: "candidate/new-skill/SKILL.md" }),
+    "candidate/new-skill/SKILL.md": `---\nname: new-skill\ndescription: ${"中".repeat(1025)}\n---\n\n正文\n`,
+  });
+  const check = validateProposal(dir);
+  assert.equal(check.status, "invalid_candidate");
+  assert.match(check.detail, /1025 字 > 1024 上限/);
+});
+
+test("validateProposal：diff 把 description 改超限 → invalid_description（退化路径：读不到原文件也能判）", () => {
+  const emptyCwd = fs.mkdtempSync(path.join(os.tmpdir(), "skill-evolve-no-skill-"));
+  const diff = [
+    "--- a/.pi/skills/deploy-test/SKILL.md",
+    "+++ b/.pi/skills/deploy-test/SKILL.md",
+    "@@ -1,3 +1,3 @@",
+    " name: deploy-test",
+    "-description: 老描述",
+    `+description: ${"中".repeat(1025)}`,
+  ].join("\n");
+  const dir = runDir({ "02-proposal.json": proposalJson(), "02-proposal.diff": diff });
+  const check = validateProposal(dir, emptyCwd);
+  assert.equal(check.status, "invalid_description");
+  assert.match(check.detail, /1025 字 > 1024 上限/);
+});
+
+test("validateProposal：能读到原文件时应用 diff 拿改后全文（存量超限同样拦，不等闸3 回滚）", () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "skill-evolve-cwd-"));
+  const skillDir = path.join(cwd, ".pi", "skills", "deploy-test");
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.writeFileSync(path.join(skillDir, "SKILL.md"), `---\nname: deploy-test\ndescription: ${"中".repeat(1025)}\n---\n\n正文\n`, "utf8");
+  const diff = [
+    "--- a/.pi/skills/deploy-test/SKILL.md",
+    "+++ b/.pi/skills/deploy-test/SKILL.md",
+    "@@ -6,1 +6,2 @@",
+    " 正文",
+    "+补一行正文",
+  ].join("\n");
+  const dir = runDir({ "02-proposal.json": proposalJson(), "02-proposal.diff": diff });
+  const check = validateProposal(dir, cwd);
+  assert.equal(check.status, "invalid_description");
+  assert.match(check.detail, /1025 字 > 1024 上限/);
+});

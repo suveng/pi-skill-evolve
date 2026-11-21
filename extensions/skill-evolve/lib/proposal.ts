@@ -8,6 +8,8 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { checkDescription, type DescriptionCheck } from "./description-limit.ts";
+import { applyUnifiedDiff } from "./diff-apply.ts";
 
 export const PROPOSAL_TYPES = ["improve", "create", "merge", "prune"] as const;
 export type ProposalType = (typeof PROPOSAL_TYPES)[number];
@@ -17,7 +19,7 @@ export const MAX_DIFF_LINES = 200;
 /** 提案只许动技能目录，别的路径一律 bad_path */
 export const SKILL_PATH_PREFIX = ".pi/skills/";
 
-export type ProposalStatus = "ok" | "missing" | "too_large" | "bad_path" | "invalid_candidate";
+export type ProposalStatus = "ok" | "missing" | "too_large" | "bad_path" | "invalid_candidate" | "invalid_description";
 
 export interface DiffFile {
   path: string;
@@ -124,6 +126,9 @@ export function validateCandidate(dir: string): CandidateCheck {
   const name = fields.name ?? "";
   if (name.length === 0) return { ok: false, detail: "frontmatter 缺 name" };
   if ((fields.description ?? "").length === 0) return { ok: false, detail: "frontmatter 缺 description" };
+  // description 是路由不是摘要：长度与写法（单行裸标量）在入队前就拦，别等闸3 写盘回滚
+  const description = checkDescription(text);
+  if (!description.ok) return { ok: false, detail: description.detail };
   if (name.length > 20) return { ok: false, detail: `name 超过 20 字：${name}` };
   if (!/^[a-z0-9-]+$/.test(name)) return { ok: false, detail: `name 不合规（只许小写字母/数字/短横线）：${name}` };
   const dirName = path.basename(dir);
@@ -154,8 +159,27 @@ function readProposalJson(runDir: string): { json: Record<string, unknown> | nul
   }
 }
 
+/**
+ * diff 提案的 description 校验：能读到原文件就应用 diff 拿「改后全文」（最准确），
+ * 读不到（复演 / 临时 run）就只看 diff 新增的 description 行；提案没改 description 时返回 null，
+ * 交给闸3 的宿主诊断兜底（存量超限由技能自己的修复轮处理，不该阻塞正文提案）。
+ */
+function checkProposalDescription(runDir: string, skill: string, diffText: string, cwd: string): DescriptionCheck | null {
+	try {
+		const baseText = fs.readFileSync(path.join(cwd, ".pi", "skills", skill, "SKILL.md"), "utf8");
+		const applied = applyUnifiedDiff(baseText, diffText);
+		if (applied.ok) return checkDescription(applied.text);
+	} catch {
+		// 读不到原文件就走下面的退化路径
+	}
+	const added = diffText.split(/\r?\n/).filter((line) => line.startsWith("+") && !line.startsWith("+++"));
+	const hit = added.map((line) => /^\+description:\s*(.*)$/.exec(line)).filter((item) => item !== null).pop();
+	if (!hit) return null;
+	return checkDescription(`---\ndescription: ${hit[1]}\n---\n`);
+}
+
 /** 校验一个 run 目录的提案：只有 status==="ok" 才允许后续（人工）评审 */
-export function validateProposal(runDir: string): ProposalCheck {
+export function validateProposal(runDir: string, cwd: string = process.cwd()): ProposalCheck {
   const { json, error } = readProposalJson(runDir);
   if (!json) return { status: "missing", detail: error ?? "没有提案" };
 
@@ -198,6 +222,10 @@ export function validateProposal(runDir: string): ProposalCheck {
   const base = { type: typed, skill, added: parsed.added, removed: parsed.removed, file: diffRel };
   if (total > MAX_DIFF_LINES) {
     return { status: "too_large", detail: `增删 ${total} 行 > ${MAX_DIFF_LINES}，转人工`, ...base };
+  }
+  const description = checkProposalDescription(runDir, skill, text, cwd);
+  if (description !== null && !description.ok) {
+    return { status: "invalid_description", detail: description.detail, ...base };
   }
   return { status: "ok", detail: `增删 ${total} 行，路径 ${parsed.files.map((item) => item.path).join("、")}`, ...base };
 }

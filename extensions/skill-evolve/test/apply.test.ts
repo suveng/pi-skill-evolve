@@ -344,3 +344,25 @@ test("老提案只写 skill、没有 skills 时，skills 退化成 [skill]", () 
   assert.ok(meta);
   assert.deepEqual(meta.skills, ["only"]);
 });
+
+test("闸3 显式拦 description 超 1024：宿主 diagnostics 为空也回滚，改动逐字节还原", async () => {
+  const long = "中".repeat(1025);
+  const diff = `--- a/${SKILL_REL}\n+++ b/${SKILL_REL}\n@@ -3,1 +3,1 @@\n-description: 演示技能\n+description: ${long}\n`;
+  const fixture = setup({ diff });
+  await seedGate0(fixture);
+  const outcome = await applyRun(item(), deps(fixture));
+  assert.equal(outcome.status, "rolled-back");
+  assert.match(outcome.detail ?? "", /description 不合规/);
+  assert.match(outcome.detail ?? "", /1025 字 > 1024 上限/);
+  assert.equal(fs.readFileSync(fixture.skillAbs, "utf8"), SKILL_TEXT);
+});
+
+test("闸3 不误伤：description 在 1024 以内照常 applied", async () => {
+  const fit = "中".repeat(1024);
+  const diff = `--- a/${SKILL_REL}\n+++ b/${SKILL_REL}\n@@ -3,1 +3,1 @@\n-description: 演示技能\n+description: ${fit}\n`;
+  const fixture = setup({ diff });
+  await seedGate0(fixture);
+  const outcome = await applyRun(item(), deps(fixture));
+  assert.equal(outcome.status, "applied");
+  assert.match(fs.readFileSync(fixture.skillAbs, "utf8"), /description: 中{1024}/);
+});
